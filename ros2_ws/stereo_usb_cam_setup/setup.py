@@ -1,4 +1,6 @@
 from setuptools import find_packages, setup
+import os
+from glob import glob
 
 package_name = 'stereo_usb_cam_setup'
 
@@ -10,6 +12,10 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join("share", package_name, "launch"), glob(os.path.join("launch", "*launch.py")),),
+        (os.path.join("share", package_name, "config"), glob(os.path.join("config", "*.rviz")),),
+        # Install config files
+        (os.path.join('share', package_name, 'config'), glob(os.path.join('config', '*.yaml'))), 
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -22,6 +28,7 @@ setup(
         'console_scripts': [
             'dual_camera_node = stereo_usb_cam_setup.dual_camera_node:main',
             'stereo_fusion_node = stereo_usb_cam_setup.stereo_fusion_node:main',
+            'dataset_recorder_node = stereo_usb_cam_setup.dataset_recorder_node:main',
         ],
     },
 )

@@ -1,0 +1,49 @@
+# Global Launch Arguments (can be overridden via command line or other launch files)
+global_args:
+  enable_hands: True                                # Set to True to enable MediaPipe Hands tracking.
+  enable_pose: True                                 # Set to True to enable MediaPipe Pose tracking.
+  body_landmarks_input_topic: /final_corrected_body_landmarks # Topic for input pose landmarks for visualization
+  hand_landmarks_input_topic: /corrected_hand_landmarks # Topic for input hand landmarks for visualization
+  secondary_body_landmarks_input_topic: /pose_landmarks
+  secondary_body_landmarks_output_topic: /body_visualization_unfiltered
+  secondary_hand_landmarks_input_topic: /hand_landmarks
+  secondary_hand_landmarks_output_topic: /hand_visualization_unfiltered
+  visualization_topic: /image_annotated             # Topic for output visualization markers
+  
+  # Camera Parameters
+  align_depth: true                                 # Whether to enable depth image alignment for RealSense camera.
+  width: 1280 # True Depth is width is 848 (scaled to match higher color)
+  height: 720 # True Depth is height is 480 (scaled to match higher color)
+  fps: 30 # Max is 90
+
+# Parameters for the dual USB camera node
+dual_camera_node:
+  ros__parameters:
+    left_camera_device: "/dev/cam_left"
+    right_camera_device: "/dev/cam_right"
+    frame_rate: 30
+    width: 640
+    height: 480
+    crop_factor: 1.0
+    use_mjpg: true
+
+# Parameters for dataset recording node
+dataset_recorder_node:
+  ros__parameters:
+    dataset_dir: "dataset"           # base directory for all runs
+    capture_period_sec: 0.5          # save period (0.5s = ~2 frames/sec)
+    warmup_seconds: 1.0              # time to wait before first save
+    jpeg_quality: 95
+    png_compression: 3
+    depth_save_millimeters: true
+    left_topic: "/camera/left/image_raw"
+    right_topic: "/camera/right/image_raw"
+    color_topic: "/camera/camera/color/image_raw"
+    depth_topic: "/camera/camera/aligned_depth_to_color/image_raw"
+    # time-window sync parameters
+    sync_time_slop: 0.15              # target sync tolerance (adaptive will try 0.05s, 0.1s, 0.2s)
+    buffer_size: 20                 # frames kept per topic (increased for 30fps)
+    max_wait_sec: 0.3                # per-tick wait to find a set
+    require_all: true                # require all topics present
+    adaptive_sync: true              # try tight sync first, fall back to looser
+    remove_used_frames: true         # clear old frames after capture to prevent clogging
