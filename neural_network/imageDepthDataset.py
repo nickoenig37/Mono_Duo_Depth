@@ -1,7 +1,8 @@
 import os
+import numpy as np
+import torchvision.transforms as Transforms
 from torch.utils.data import Dataset
 from PIL import Image
-import torchvision.transforms as Transforms
 
 class ImageDepthDataset(Dataset):
     def __init__(self, root_dir, save_transformed=False):
@@ -24,8 +25,6 @@ class ImageDepthDataset(Dataset):
         print(f"Loading dataset from: {self.root_dir}")
 
         self.samples = []
-        to_pil = Transforms.ToPILImage()
-
         for scene_dir in os.listdir(self.root_dir):
             scene_path = os.path.join(self.root_dir, scene_dir)
             if not os.path.isdir(scene_path):
@@ -36,10 +35,10 @@ class ImageDepthDataset(Dataset):
                 if not os.path.isdir(sample_path):
                     continue
 
-                left_path = os.path.join(sample_path, "left.jpg")
-                right_path = os.path.join(sample_path, "right.jpg")
-                color_path = os.path.join(sample_path, "color.jpg")
-                depth_path = os.path.join(sample_path, "depth.png")
+                left_path = os.path.join(sample_path, "left.npy")
+                right_path = os.path.join(sample_path, "right.npy")
+                color_path = os.path.join(sample_path, "color.npy")
+                depth_path = os.path.join(sample_path, "depth.npy")
 
                 if all(os.path.exists(p) for p in [left_path, right_path, color_path, depth_path]):
                     # keep sample record
@@ -51,37 +50,37 @@ class ImageDepthDataset(Dataset):
                     })
 
                     # Apply transforms and save transformed images into the same folder
-                    if self.save_transformed:
-                        try:
-                            # color (uses depth_sensor_transform)
-                            color_img = Image.open(color_path).convert("RGB")
-                            color_t = self._depth_sensor_transform(color_img)
-                            color_pil = to_pil(color_t)
-                            color_pil.save(os.path.join(sample_path, "color_transformed.jpg"))
+                    # TODO: Fix this part later
+                    # if not self.save_transformed:
+                    #     try:
+                    #         # Load and convert npy to PIL for transform
+                    #         color_arr = np.load(color_path)
+                    #         depth_arr = np.load(depth_path)
 
-                            # depth (ensure single-channel)
-                            depth_img = Image.open(depth_path)
-                            if depth_img.mode != 'L':
-                                depth_img = depth_img.convert('L')
-                            depth_t = self._depth_sensor_transform(depth_img)
-                            depth_pil = to_pil(depth_t)
-                            depth_pil.save(os.path.join(sample_path, "depth_transformed.png"))        
-                        except Exception as e:
-                            print(f"Warning: failed to save transformed images for {sample_path}: {e}")
-                    else:
-                        # Delete transformed images if they exist
-                        transformed_color_path = os.path.join(sample_path, "color_transformed.jpg")
-                        transformed_depth_path = os.path.join(sample_path, "depth_transformed.png")
-                        if os.path.exists(transformed_color_path):
-                            os.remove(transformed_color_path)
-                        if os.path.exists(transformed_depth_path):
-                            os.remove(transformed_depth_path)
+                    #         # Convert to PIL
+                    #         color_img = Image.fromarray(color_arr, mode='RGB')
+                    #         depth_img = Image.fromarray(depth_arr, mode='I;16')
+
+                    #         # Apply transforms
+                    #         color_t = self._depth_sensor_transform(color_img)
+                    #         depth_t = self._depth_sensor_transform(depth_img)
+
+                    #         # Save back as npy tensors
+                    #         np.save(os.path.join(sample_path, "color_transformed.npy"), color_t.numpy())
+                    #         np.save(os.path.join(sample_path, "depth_transformed.npy"), depth_t.numpy())        
+                    #     except Exception as e:
+                    #         print(f"Warning: failed to save transformed images for {sample_path}: {e}")
+                    # else:
+                    #     # Delete transformed npy if they exist
+                    #     for fname in ["color_transformed.npy", "depth_transformed.npy"]:
+                    #         fpath = os.path.join(sample_path, fname)
+                    #         if os.path.exists(fpath):
+                    #             os.remove(fpath)
                 else:
                     print(f"Skipping {sample_path}, missing required files.")
 
         if len(self.samples) == 0:
             print("No valid datapoints found in dataset directory.")
-            return None, None, None, None
         else:
             print(f"Found {len(self.samples)} valid samples.")
 
@@ -91,18 +90,32 @@ class ImageDepthDataset(Dataset):
     def __getitem__(self, idx):
         sample = self.samples[idx]
 
-        left_img = Image.open(sample["left"]).convert("RGB")
-        right_img = Image.open(sample["right"]).convert("RGB")
-        color_img = Image.open(sample["color"]).convert("RGB")
-        depth_img = Image.open(sample["depth"])
+        # Load npy arrays
+        left_arr = np.load(sample["left"])
+        right_arr = np.load(sample["right"])
+        color_arr = np.load(sample["color"])
+        depth_arr = np.load(sample["depth"])
 
-        # Apply transformations
+        # Convert to PIL images for torchvision transforms
+        left_img = Image.fromarray(left_arr.astype(np.uint8))
+        right_img = Image.fromarray(right_arr.astype(np.uint8))
+        color_img = Image.fromarray(color_arr.astype(np.uint8))
+
+        import torch
+        depth_arr = depth_arr.astype(np.float32) / 65535.0  # normalize to [0,1]
+        depth_tensor = torch.from_numpy(depth_arr).unsqueeze(0)  # (1, H, W)
+
+        # Resize or crop depth if needed (keep NEAREST interp)
+        depth_tensor = torch.nn.functional.interpolate(
+            depth_tensor.unsqueeze(0),
+            size=(480, 640),
+            mode='nearest'
+        ).squeeze(0)
+
+        # Apply transforms
         left_img = self._monocular_image_transform(left_img)
         right_img = self._monocular_image_transform(right_img)
         color_img = self._depth_sensor_transform(color_img)
-        if depth_img.mode != 'L':
-            depth_img = depth_img.convert('L')
-        depth_tensor = self._depth_sensor_transform(depth_img)
 
         return {
             "left": left_img,
