@@ -29,6 +29,8 @@ setup(
             'dual_camera_node = stereo_usb_cam_setup.dual_camera_node:main',
             'stereo_fusion_node = stereo_usb_cam_setup.stereo_fusion_node:main',
             'dataset_recorder_node = stereo_usb_cam_setup.dataset_recorder_node:main',
+            'compressed_to_raw_node = stereo_usb_cam_setup.compressed_to_raw_node:main',
+            'depth_compressed_to_raw_node = stereo_usb_cam_setup.depth_compressed_to_raw_node:main',
         ],
     },
 )
