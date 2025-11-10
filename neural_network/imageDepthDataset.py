@@ -1,4 +1,5 @@
 import os
+import torch
 import numpy as np
 import torchvision.transforms as Transforms
 from torch.utils.data import Dataset
@@ -9,19 +10,32 @@ class ImageDepthDataset(Dataset):
         self.root_dir = root_dir
         self.save_transformed = save_transformed
         self.samples = []
-        self._monocular_image_transform = Transforms.Compose([
+        self._monocular_RGB_image_transform = Transforms.Compose([
             Transforms.Resize((480, 640)),
             Transforms.ToTensor()
         ])
-        self._depth_sensor_transform = Transforms.Compose([
+        self._depth_sensor_RGB_image_transform = Transforms.Compose([
             Transforms.CenterCrop((500, 600)),
             Transforms.Resize((480, 640)),
             Transforms.ToTensor()
         ])
 
-        self.load_dataset()
+        self._load_dataset()
 
-    def load_dataset(self):
+    def _transform_depth_map(self, depth_arr):
+        depth_arr = depth_arr.astype(np.float32) / 65535.0  # normalize to [0,1]
+        depth_tensor = torch.from_numpy(depth_arr).unsqueeze(0)  # (1, H, W)
+
+        # Resize or crop depth if needed (keep NEAREST interp)
+        depth_tensor = torch.nn.functional.interpolate(
+            depth_tensor.unsqueeze(0),
+            size=(480, 640),
+            mode='nearest'
+        ).squeeze(0)
+
+        return depth_tensor
+
+    def _load_dataset(self):
         print(f"Loading dataset from: {self.root_dir}")
 
         self.samples = []
@@ -50,32 +64,30 @@ class ImageDepthDataset(Dataset):
                     })
 
                     # Apply transforms and save transformed images into the same folder
-                    # TODO: Fix this part later
-                    # if not self.save_transformed:
-                    #     try:
-                    #         # Load and convert npy to PIL for transform
-                    #         color_arr = np.load(color_path)
-                    #         depth_arr = np.load(depth_path)
+                    if self.save_transformed:
+                        try:
+                            # Load and convert npy to PIL for transform
+                            color_arr = np.load(color_path)
+                            depth_arr = np.load(depth_path)
 
-                    #         # Convert to PIL
-                    #         color_img = Image.fromarray(color_arr, mode='RGB')
-                    #         depth_img = Image.fromarray(depth_arr, mode='I;16')
+                            # Convert color to PIL and transform it
+                            color_img = Image.fromarray(color_arr.astype(np.uint8), mode='RGB')
+                            color_t = self._depth_sensor_RGB_image_transform(color_img)
 
-                    #         # Apply transforms
-                    #         color_t = self._depth_sensor_transform(color_img)
-                    #         depth_t = self._depth_sensor_transform(depth_img)
+                            # Transform depth properly
+                            depth_t = self._transform_depth_map(depth_arr)
 
-                    #         # Save back as npy tensors
-                    #         np.save(os.path.join(sample_path, "color_transformed.npy"), color_t.numpy())
-                    #         np.save(os.path.join(sample_path, "depth_transformed.npy"), depth_t.numpy())        
-                    #     except Exception as e:
-                    #         print(f"Warning: failed to save transformed images for {sample_path}: {e}")
-                    # else:
-                    #     # Delete transformed npy if they exist
-                    #     for fname in ["color_transformed.npy", "depth_transformed.npy"]:
-                    #         fpath = os.path.join(sample_path, fname)
-                    #         if os.path.exists(fpath):
-                    #             os.remove(fpath)
+                            # Save back as npy tensors
+                            np.save(os.path.join(sample_path, "color_transformed.npy"), color_t.permute(1, 2, 0).numpy())
+                            np.save(os.path.join(sample_path, "depth_transformed.npy"), depth_t.numpy())       
+                        except Exception as e:
+                            print(f"Warning: failed to save transformed images for {sample_path}: {e}")
+                    else:
+                        # Delete transformed npy if they exist
+                        for fname in ["color_transformed.npy", "depth_transformed.npy"]:
+                            fpath = os.path.join(sample_path, fname)
+                            if os.path.exists(fpath):
+                                os.remove(fpath)
                 else:
                     print(f"Skipping {sample_path}, missing required files.")
 
@@ -101,21 +113,11 @@ class ImageDepthDataset(Dataset):
         right_img = Image.fromarray(right_arr.astype(np.uint8))
         color_img = Image.fromarray(color_arr.astype(np.uint8))
 
-        import torch
-        depth_arr = depth_arr.astype(np.float32) / 65535.0  # normalize to [0,1]
-        depth_tensor = torch.from_numpy(depth_arr).unsqueeze(0)  # (1, H, W)
-
-        # Resize or crop depth if needed (keep NEAREST interp)
-        depth_tensor = torch.nn.functional.interpolate(
-            depth_tensor.unsqueeze(0),
-            size=(480, 640),
-            mode='nearest'
-        ).squeeze(0)
-
         # Apply transforms
-        left_img = self._monocular_image_transform(left_img)
-        right_img = self._monocular_image_transform(right_img)
-        color_img = self._depth_sensor_transform(color_img)
+        left_img = self._monocular_RGB_image_transform(left_img)
+        right_img = self._monocular_RGB_image_transform(right_img)
+        color_img = self._depth_sensor_RGB_image_transform(color_img)
+        depth_tensor = self._transform_depth_map(depth_arr)
 
         return {
             "left": left_img,
