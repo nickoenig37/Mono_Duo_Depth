@@ -1,0 +1,18 @@
+# Parameters for ROS 2 Nodes
+# This file provides a centralized overview and configuration for all node parameters.
+
+# Global Launch Arguments (can be overridden via command line or other launch files)
+global_args:
+  enable_hands: False                                # Placeholder for different info in the future
+  
+color_decompressor:
+  ros__parameters:
+    input_topic: /camera/camera/color/image_raw/compressed
+    output_topic: /camera/camera/color/image_raw
+    image_encoding: bgr8
+
+depth_decompressor:
+  ros__parameters:
+    input_topic: /camera/camera/aligned_depth_to_color/image_raw/compressedDepth
+    output_topic: /camera/camera/aligned_depth_to_color/image_raw
+    image_encoding: 16UC1
