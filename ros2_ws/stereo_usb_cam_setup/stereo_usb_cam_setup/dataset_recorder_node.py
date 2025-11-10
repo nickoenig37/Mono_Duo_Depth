@@ -6,6 +6,7 @@ from collections import deque
 from typing import Optional, Tuple
 
 import cv2
+import numpy as np  # Added for .npy saving
 import rclpy
 from rclpy.node import Node
 from cv_bridge import CvBridge
@@ -219,21 +220,27 @@ class DatasetRecorderNode(Node):
             return
         os.makedirs(folder_path, exist_ok=False)
 
-        # Paths
-        left_path = os.path.join(folder_path, 'left.jpg')
-        right_path = os.path.join(folder_path, 'right.jpg')
-        color_path = os.path.join(folder_path, 'color.jpg')
-        depth_path = os.path.join(folder_path, 'depth.png')
+        # Paths (changed to .npy only per new requirement)
+        left_path = os.path.join(folder_path, 'left.npy')
+        right_path = os.path.join(folder_path, 'right.npy')
+        color_path = os.path.join(folder_path, 'color.npy')
+        depth_path = os.path.join(folder_path, 'depth.npy')
         meta_path = os.path.join(folder_path, 'meta.txt')
 
-        # Save
+        # Save as raw arrays (.npy).
+        # Convert BGR (cv2) to RGB before saving to avoid blue-tinted visualization when loaded with libraries expecting RGB.
+        # Depth saved either as uint16 (millimeters) or float32 (meters) depending on depth_save_mm.
         try:
-            cv2.imwrite(left_path, left_cv, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
-            cv2.imwrite(right_path, right_cv, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
-            cv2.imwrite(color_path, color_cv, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
-            cv2.imwrite(depth_path, depth_cv, [cv2.IMWRITE_PNG_COMPRESSION, self.png_compression])
+            left_rgb = cv2.cvtColor(left_cv, cv2.COLOR_BGR2RGB)
+            right_rgb = cv2.cvtColor(right_cv, cv2.COLOR_BGR2RGB)
+            color_rgb = cv2.cvtColor(color_cv, cv2.COLOR_BGR2RGB)
+
+            np.save(left_path, left_rgb)
+            np.save(right_path, right_rgb)
+            np.save(color_path, color_rgb)
+            np.save(depth_path, depth_cv)
         except Exception as e:
-            self.get_logger().error(f"Failed to save images: {e}")
+            self.get_logger().error(f"Failed to save .npy arrays: {e}")
             return
 
         # Meta
@@ -255,6 +262,12 @@ class DatasetRecorderNode(Node):
                     f.write(f"Max skew (ms): {sync_quality['max_skew_ms']:.2f}\n")
                     f.write(f"Avg skew (ms): {sync_quality['avg_skew_ms']:.2f}\n")
                     f.write(f"Sync quality: {sync_quality['quality']}\n")
+                # New metadata for .npy arrays
+                f.write(f"Left shape (RGB): {left_rgb.shape}, dtype: {left_rgb.dtype}\n")
+                f.write(f"Right shape (RGB): {right_rgb.shape}, dtype: {right_rgb.dtype}\n")
+                f.write(f"Color shape (RGB): {color_rgb.shape}, dtype: {color_rgb.dtype}\n")
+                f.write(f"Depth shape: {depth_cv.shape}, dtype: {depth_cv.dtype}\n")
+                f.write(f"Depth units: {'millimeters (uint16)' if self.depth_save_mm else 'meters (float32)'}\n")
         except Exception as e:
             self.get_logger().warn(f"Failed to write meta: {e}")
 
