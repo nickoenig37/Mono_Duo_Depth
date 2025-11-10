@@ -53,4 +53,4 @@ CATKIN_IGNORE
 # Repo specific files
 *.pth
 */venv
-# /dataset/*
+/dataset/*
