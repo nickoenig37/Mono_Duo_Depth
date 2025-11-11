@@ -58,6 +58,8 @@ CATKIN_IGNORE
 # Ignore virtual environments
 */venv
 
-# Ignore dataset files but keep the dataset directory itself, which is why .gitkeep is used
+# Ignore dataset/results files but keep the dataset directory itself, which is why .gitkeep is used
 /dataset/*
 !dataset/.gitkeep
+/results/*
+!results/.gitkeep

@@ -5,6 +5,36 @@ from depthEstimationNet import DepthEstimationNet
 from imageDepthDataset import ImageDepthDataset
 import os
 
+def create_new_version_folder(base_dir):
+    """
+    Creates a new folder like v1, v2, ... inside base_dir.
+    Returns the path to the created folder.
+    """
+    os.makedirs(base_dir, exist_ok=True)
+
+    # Find the lowest unused version number
+    version = 1
+    while os.path.exists(os.path.join(base_dir, f"v{version}")):
+        version += 1
+
+    version_folder = os.path.join(base_dir, f"v{version}")
+    os.makedirs(version_folder)
+    print(f"Created results folder: {version_folder}\n")
+    return version_folder
+
+def compute_metrics(pred, target):
+    """Computes AbsRel and threshold accuracies."""
+    mask = target > 0  # avoid division by zero
+    pred = pred[mask]
+    target = target[mask]
+
+    abs_rel = torch.mean(torch.abs(pred - target) / target).item()
+
+    ratio = torch.max(pred / target, target / pred)
+    delta = torch.mean((ratio < 1.25).float()).item()
+
+    return abs_rel, delta
+
 def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
     """
     Runs one full epoch of training over the dataset.
@@ -22,6 +52,8 @@ def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
     """
     model.train()
     total_train_loss = 0
+    total_train_absrel = 0
+    total_train_delta = 0
 
     # ---- Training ----
     for batch in train_loader:
@@ -38,11 +70,19 @@ def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
 
         total_train_loss += loss.item()
 
+        absrel, delta = compute_metrics(output, depth)
+        total_train_absrel += absrel
+        total_train_delta += delta
+
     avg_train_loss = total_train_loss / len(train_loader)
+    avg_train_absrel = total_train_absrel / len(train_loader)
+    avg_train_delta = total_train_delta / len(train_loader)
 
     # ---- Validation ----
     model.eval()
     total_val_loss = 0
+    total_val_absrel = 0
+    total_val_delta = 0
     with torch.no_grad():
         for batch in val_loader:
             left = batch["left"].to(device)
@@ -53,9 +93,15 @@ def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
             output = model(left, right, color)
             total_val_loss += criterion(output, depth).item()
 
-    avg_val_loss = total_val_loss / len(val_loader)
+            absrel, delta = compute_metrics(output, depth)
+            total_val_absrel += absrel
+            total_val_delta += delta
 
-    return avg_train_loss, avg_val_loss
+    avg_val_loss = total_val_loss / len(val_loader)
+    avg_val_absrel = total_val_absrel / len(val_loader)
+    avg_val_delta = total_val_delta / len(val_loader)
+
+    return avg_train_loss, avg_train_absrel, avg_train_delta, avg_val_loss, avg_val_absrel, avg_val_delta
 
 def activate_cuda():
     if torch.cuda.is_available():
@@ -75,13 +121,19 @@ def main():
     device = activate_cuda()
 
     # Define the dataset directory relative to this script
-    dataset_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset"))
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    dataset_dir = os.path.join(base_dir, "dataset")
+    results_dir = os.path.join(base_dir, "results")
     if not os.path.isdir(dataset_dir):
         print(f"Dataset directory not found: {dataset_dir}")
         return
+    
+    # Create a versioned results folder
+    version_folder = create_new_version_folder(results_dir)
+    model_save_path = os.path.join(version_folder, "best_depth_model.pth")
 
     # Create a DataLoader for the dataset
-    dataset = ImageDepthDataset(root_dir=dataset_dir, save_transformed=True)
+    dataset = ImageDepthDataset(root_dir=dataset_dir, save_transformed=False)
 
     # Compute the split sizes of the validation and training sets
     train_val_split = 0.8
@@ -105,18 +157,25 @@ def main():
     # Define the optimizer — Adam is good for training most CNNs
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
+    print("\nStarting training...\n")
+
     # Train the model for the set number of epochs
     best_val_loss = float('inf')
     epochs = 1000
     for epoch in range(epochs):
-        train_loss, val_loss = train_epoch(model, train_loader, val_loader, criterion, optimizer, device)
-        print(f"Epoch [{epoch+1}]: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
+        train_loss, train_absrel, train_delta, val_loss, val_absrel, val_delta = train_epoch(model, train_loader, val_loader, criterion, optimizer, device)
+        print(f"Epoch [{epoch+1}]:")
+        print(f"Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
+        print(f"Train Absolute Relative Error = {train_absrel:.4f}, Train Threshold Accuracy (δ < 1.25) = {train_delta:.4f}")
+        print(f"Val Absolute Relative Error = {val_absrel:.4f}, Val Threshold Accuracy (δ < 1.25) = {val_delta:.4f}")
 
         # Save the model if the validation loss has improved
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), "best_depth_model.pth")
+            torch.save(model.state_dict(), model_save_path)
             print(f"Saved new best model (Val Loss: {val_loss:.4f})")
+
+        print("\n" + "-" * 50 + "\n")
 
 if __name__ == "__main__":
     main()
