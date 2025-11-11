@@ -1,52 +1,61 @@
 from pathlib import Path
+import argparse
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from depthEstimationNet import DepthEstimationNet
-import torchvision.transforms as Transforms
+import torchvision.transforms as T
+from torchvision.transforms import InterpolationMode
 from PIL import Image
-import torch.nn.functional as F
 
-def transform_depth_map(depth_arr):
-    depth_arr = depth_arr.astype(np.float32) / 65535.0  # normalize to [0,1]
-    depth_tensor = torch.from_numpy(depth_arr).unsqueeze(0)  # (1, H, W)
 
-    # Resize or crop depth if needed (keep NEAREST interp)
+def transform_depth_map(depth_arr, target_size=(480, 640)):
+    # normalize to [0,1] to match current model/criterion expectations
+    d = depth_arr.astype(np.float32)
+    if d.dtype == np.float32 and d.max() > 1.0:
+        d = d / 65535.0
+    elif depth_arr.dtype == np.uint16:
+        d = d / 65535.0
+    depth_tensor = torch.from_numpy(d).unsqueeze(0)
     depth_tensor = torch.nn.functional.interpolate(
-        depth_tensor.unsqueeze(0),
-        size=(480, 640),
-        mode='nearest'
+        depth_tensor.unsqueeze(0), size=target_size, mode='nearest'
     ).squeeze(0)
-
     return depth_tensor
 
-def run_inference(model_path, device):
+
+def run_inference(model_path, sample_dir, device):
     """
     Run inference on a set of input images.
     """
     # Load trained model
     model = DepthEstimationNet().to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    try:
+        state = torch.load(model_path, map_location=device, weights_only=True)
+    except TypeError:
+        state = torch.load(model_path, map_location=device)
+    if isinstance(state, dict) and 'state_dict' in state:
+        state = state['state_dict']
+    model.load_state_dict(state)
     model.eval()
 
-    # Hardcoded datapoint to test on
-    input_dir = Path("../dataset/solar_car_lab_3/000008")
+    input_dir = Path(sample_dir)
+    if not input_dir.exists():
+        print(f"ERROR: Sample directory does not exist: {input_dir}")
+        return
 
     # Paths to npy files
     left_path = input_dir / "left.npy"
     right_path = input_dir / "right.npy"
     color_path = input_dir / "color.npy"
-    depth_path = input_dir / "depth.npy"
+    depth_left = input_dir / "depth_left.npy"
+    depth_path = depth_left if depth_left.exists() else (input_dir / "depth.npy")
 
     # Define transformations (same as in dataset class)
-    monocular_image_transform = Transforms.Compose([
-        Transforms.Resize((480, 640)),
-        Transforms.ToTensor()
-    ])
-    depth_sensor_RGB_image_transform = Transforms.Compose([
-        Transforms.CenterCrop((500, 600)),
-        Transforms.Resize((480, 640)),
-        Transforms.ToTensor()
+    target_size = (480, 640)
+    rgb_transform = T.Compose([
+        T.Resize(target_size, interpolation=InterpolationMode.BILINEAR),
+        T.ToTensor(),
+        T.Normalize((0.485,0.456,0.406), (0.229,0.224,0.225)),
     ])
 
     # --- Load npy arrays ---
@@ -61,14 +70,15 @@ def run_inference(model_path, device):
     color_img = Image.fromarray(color_arr.astype(np.uint8))
 
     # Apply transforms
-    left_tensor = monocular_image_transform(left_img).unsqueeze(0).to(device)
-    right_tensor = monocular_image_transform(right_img).unsqueeze(0).to(device)
-    color_tensor = depth_sensor_RGB_image_transform(color_img).unsqueeze(0).to(device)
-    depth_tensor = transform_depth_map(depth_arr).unsqueeze(0).to(device)
+    left_tensor = rgb_transform(left_img).unsqueeze(0).to(device)
+    right_tensor = rgb_transform(right_img).unsqueeze(0).to(device)
+    color_tensor = rgb_transform(color_img).unsqueeze(0).to(device)
+    depth_tensor = transform_depth_map(depth_arr, target_size=target_size).unsqueeze(0).to(device)
     
     # --- Run inference ---
     with torch.no_grad():
-        output = model(left_tensor, right_tensor, color_tensor)
+        # Model expects (left, center, right)
+        output = model(left_tensor, color_tensor, right_tensor)
 
     # --- Convert to numpy for visualization ---
     output_depth = output.squeeze().cpu().numpy()
@@ -96,9 +106,17 @@ def run_inference(model_path, device):
     plt.axis('off')
 
     plt.tight_layout()
-    plt.show()
+    # Save next to sample folder for convenience
+    out_path = input_dir / 'inference.png'
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    print(f"Saved figure to: {out_path}")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Single-sample inference")
+    parser.add_argument('--model', type=str, default='../best_depth_model.pth')
+    parser.add_argument('--sample', type=str, required=True, help='Path to sample folder')
+    args = parser.parse_args()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_path = "../best_depth_model.pth"
-    run_inference(model_path, device)
+    run_inference(args.model, args.sample, device)

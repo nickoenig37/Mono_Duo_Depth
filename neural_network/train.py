@@ -133,20 +133,56 @@ def main():
     model_save_path = os.path.join(version_folder, "best_depth_model.pth")
 
     # Create a DataLoader for the dataset
-    dataset = ImageDepthDataset(root_dir=dataset_dir, save_transformed=False)
+    # Base dataset (no augmentation) just to count samples
+    base_dataset = ImageDepthDataset(
+        root_dir=dataset_dir,
+        save_transformed=False,
+        target_size=(480, 640),
+        normalize_rgb=True,
+        prefer_registered_depth=True,
+        color_jitter=False,
+        hflip_prob=0.0,
+    )
 
     # Compute the split sizes of the validation and training sets
     train_val_split = 0.8
-    n_total = len(dataset)
+    n_total = len(base_dataset)
     n_train = int(n_total * train_val_split)
     n_val = n_total - n_train
 
     # Split the dataset based on the split sizes computed
-    train_dataset, val_dataset = random_split(dataset, [n_train, n_val])
+    # Create train/val with different augmentation settings using same indices
+    generator = torch.Generator().manual_seed(42)
+    indices = torch.randperm(n_total, generator=generator).tolist()
+    train_indices = indices[:n_train]
+    val_indices = indices[n_train:]
+
+    train_full = ImageDepthDataset(
+        root_dir=dataset_dir,
+        save_transformed=False,
+        target_size=(480, 640),
+        normalize_rgb=True,
+        prefer_registered_depth=True,
+        color_jitter=True,
+        hflip_prob=0.5,
+    )
+    val_full = ImageDepthDataset(
+        root_dir=dataset_dir,
+        save_transformed=False,
+        target_size=(480, 640),
+        normalize_rgb=True,
+        prefer_registered_depth=True,
+        color_jitter=False,
+        hflip_prob=0.0,
+    )
+
+    # Subset selection
+    train_dataset = torch.utils.data.Subset(train_full, train_indices)
+    val_dataset = torch.utils.data.Subset(val_full, val_indices)
 
     # Create DataLoaders for training and validation sets so we can iterate through them in batches instead of all at once
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=2, pin_memory=torch.cuda.is_available())
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=2, pin_memory=torch.cuda.is_available())
 
     # Initialize the depth estimation model and move it to the device
     model = DepthEstimationNet().to(device)
