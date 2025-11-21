@@ -1,104 +1,89 @@
+import os
 from pathlib import Path
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from depthEstimationNet import DepthEstimationNet
-import torchvision.transforms as Transforms
-from PIL import Image
-import torch.nn.functional as F
-
-def transform_depth_map(depth_arr):
-    depth_arr = depth_arr.astype(np.float32) / 65535.0  # normalize to [0,1]
-    depth_tensor = torch.from_numpy(depth_arr).unsqueeze(0)  # (1, H, W)
-
-    # Resize or crop depth if needed (keep NEAREST interp)
-    depth_tensor = torch.nn.functional.interpolate(
-        depth_tensor.unsqueeze(0),
-        size=(480, 640),
-        mode='nearest'
-    ).squeeze(0)
-
-    return depth_tensor
+from depth_estimation_net import SiameseStereoNet
+from dataset_loaders.stereo_preprocessor import StereoPreprocessor
 
 def run_inference(model_path, device):
     """
     Run inference on a set of input images.
     """
+    if not os.path.exists(model_path):
+        print("ERROR: Model path does not exist: ", model_path)
+        return
+
     # Load trained model
-    model = DepthEstimationNet().to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model = SiameseStereoNet().to(device)
+    state_dict = torch.load(model_path, map_location=device)
+    model.load_state_dict(state_dict)
     model.eval()
 
-    # Hardcoded datapoint to test on
-    input_dir = Path("../dataset/solar_car_lab_3/000008")
-
-    # Paths to npy files
-    left_path = input_dir / "left.npy"
-    right_path = input_dir / "right.npy"
-    color_path = input_dir / "color.npy"
-    depth_path = input_dir / "depth.npy"
-
-    # Define transformations (same as in dataset class)
-    monocular_image_transform = Transforms.Compose([
-        Transforms.Resize((480, 640)),
-        Transforms.ToTensor()
-    ])
-    depth_sensor_RGB_image_transform = Transforms.Compose([
-        Transforms.CenterCrop((500, 600)),
-        Transforms.Resize((480, 640)),
-        Transforms.ToTensor()
-    ])
-
-    # --- Load npy arrays ---
-    left_arr = np.load(left_path)
-    right_arr = np.load(right_path)
-    color_arr = np.load(color_path)
-    depth_arr = np.load(depth_path)
-
-    # Convert to PIL for transforms (for RGB images only)
-    left_img = Image.fromarray(left_arr.astype(np.uint8))
-    right_img = Image.fromarray(right_arr.astype(np.uint8))
-    color_img = Image.fromarray(color_arr.astype(np.uint8))
-
-    # Apply transforms
-    left_tensor = monocular_image_transform(left_img).unsqueeze(0).to(device)
-    right_tensor = monocular_image_transform(right_img).unsqueeze(0).to(device)
-    color_tensor = depth_sensor_RGB_image_transform(color_img).unsqueeze(0).to(device)
-    depth_tensor = transform_depth_map(depth_arr).unsqueeze(0).to(device)
+    # Setup path to validation set samples to run on, and specify the file name
+    base_dir = Path("../dataset/FlyingThings3D/val")
+    file_name = "0000206" 
     
-    # --- Run inference ---
+    # Construct the paths for left, right images and disparity images
+    left_path = base_dir / "image_clean/left" / f"{file_name}.png"
+    right_path = base_dir / "image_clean/right" / f"{file_name}.png"
+    disp_path = base_dir / "disparity/left" / f"{file_name}.pfm"
+
+    if not left_path.exists() or not right_path.exists() or not disp_path.exists():
+        print(f"ERROR: One or more input files do not exist for base_dir {base_dir} and file_name {file_name}")
+        return
+
+    # Preprocess the data
+    preprocessor = StereoPreprocessor(target_size=(480, 640))
+    left_tensor, right_tensor, target_disp_tensor = preprocessor.load_sample(
+        left_path, right_path, disp_path
+    )
+    
+    # Run inference on the preprocessed data using the model
     with torch.no_grad():
-        output = model(left_tensor, right_tensor, color_tensor)
+        output = model(
+            left_tensor.unsqueeze(0).to(device), 
+            right_tensor.unsqueeze(0).to(device)
+        )
 
-    # --- Convert to numpy for visualization ---
-    output_depth = output.squeeze().cpu().numpy()
-    ground_truth_depth = depth_tensor.squeeze().cpu().numpy()
+    # Process the reuslts, retrieving the predicted disparity map and the ground truth disparity map, and converting to numpy for visualization
+    predicted_disparity_map = output.squeeze().cpu().numpy()
+    ground_truth_disparity_map = target_disp_tensor.squeeze().cpu().numpy()
 
-     # Convert transformed color tensor to numpy [H, W, 3]
-    color_transformed = color_tensor.squeeze().cpu().permute(1, 2, 0).numpy()
-    color_transformed = np.clip(color_transformed, 0, 1)  # just in case
+    # Retrieve the input left image tensor for visualization, and do permutations for visualization
+    left_input_image = left_tensor.permute(1, 2, 0).numpy()
+    left_input_image = np.clip(left_input_image, 0, 1)
 
-    # --- Plot results ---
-    plt.figure(figsize=(12, 6))
+    # Plot everything on one figure with 3 subplots
+    plt.figure(figsize=(15, 5))
+
+    # Plot 1: Left Input Image
     plt.subplot(1, 3, 1)
-    plt.title("Transformed Color (Input to Model)")
-    plt.imshow(color_transformed)
+    plt.title("Left Input Image After Preprocessing")
+    plt.imshow(left_input_image)
     plt.axis('off')
 
+    # Plot 2: Predicted Disparity
     plt.subplot(1, 3, 2)
-    plt.title("Estimated Depth Map")
-    plt.imshow(output_depth, cmap='plasma')
+    plt.title("Predicted Disparity")
+    plt.imshow(predicted_disparity_map, cmap='plasma')  #  Use 'plasma' colormap which is good for disparity (bright = close/high shift)
     plt.axis('off')
 
+    # Plot 3: Ground Truth Disparity
     plt.subplot(1, 3, 3)
-    plt.title("Transformed Ground Truth Depth Map")
-    plt.imshow(ground_truth_depth, cmap='plasma')
+    plt.title("Ground Truth Disparity")
+    plt.imshow(ground_truth_disparity_map, cmap='plasma')
     plt.axis('off')
+
+    # Save the plot
+    save_path = 'inference_results.png'
+    plt.savefig(save_path, bbox_inches='tight', pad_inches=0.1)
+    print(f"Success! Results saved to {save_path}")
 
     plt.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_path = "../best_depth_model.pth"
+    model_path = "../results/v3/best_stereo_model.pth"
     run_inference(model_path, device)

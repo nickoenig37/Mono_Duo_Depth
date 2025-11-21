@@ -5,7 +5,8 @@ import torchvision.transforms as Transforms
 from torch.utils.data import Dataset
 from PIL import Image
 
-class ImageDepthDataset(Dataset):
+# This is for our own custom datasets that we have collected
+class CustomLoader(Dataset):
     def __init__(self, root_dir, save_transformed=False):
         self.root_dir = root_dir
         self.save_transformed = save_transformed
