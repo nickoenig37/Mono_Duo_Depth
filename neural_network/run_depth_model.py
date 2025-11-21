@@ -1,12 +1,13 @@
+import argparse
 import os
-from pathlib import Path
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from pathlib import Path
 from depth_estimation_net import SiameseStereoNet
 from dataset_loaders.stereo_preprocessor import StereoPreprocessor
 
-def run_inference(model_path, device):
+def run_inference(model_path, file_name, device, open_plot=False, save_plot=True):
     """
     Run inference on a set of input images.
     """
@@ -22,7 +23,6 @@ def run_inference(model_path, device):
 
     # Setup path to validation set samples to run on, and specify the file name
     base_dir = Path("../dataset/FlyingThings3D/val")
-    file_name = "0000206" 
     
     # Construct the paths for left, right images and disparity images
     left_path = base_dir / "image_clean/left" / f"{file_name}.png"
@@ -55,7 +55,7 @@ def run_inference(model_path, device):
     left_input_image = np.clip(left_input_image, 0, 1)
 
     # Plot everything on one figure with 3 subplots
-    plt.figure(figsize=(15, 5))
+    plt.figure(figsize=(14, 5))
 
     # Plot 1: Left Input Image
     plt.subplot(1, 3, 1)
@@ -75,15 +75,31 @@ def run_inference(model_path, device):
     plt.imshow(ground_truth_disparity_map, cmap='plasma')
     plt.axis('off')
 
-    # Save the plot
-    save_path = 'inference_results.png'
-    plt.savefig(save_path, bbox_inches='tight', pad_inches=0.1)
-    print(f"Success! Results saved to {save_path}")
+    if save_plot:
+        save_path = 'inference_results.png'
+        plt.savefig(save_path, bbox_inches='tight', pad_inches=0.1)
+        print(f"Inference results saved to {save_path}")
 
-    plt.tight_layout()
-    plt.show()
+    if open_plot:
+        plt.tight_layout()
+        plt.show()
 
 if __name__ == "__main__":
+    """
+    Ex Usage. python run_depth_model.py --model_path ../results/v3/best_stereo_model.pth --file_name 0000206 --no_save_plot
+    """
+    parser = argparse.ArgumentParser(description="Run Stereo Depth Inference")
+    parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model")
+    parser.add_argument("--file_name", type=str, required=True, help="File name of the sample to run inference on")
+    parser.add_argument("--no_save_plot", action="store_false", dest="save_plot", help="Don't save the plot")
+    parser.set_defaults(save_plot=True)
+    args = parser.parse_args()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_path = "../results/v3/best_stereo_model.pth"
-    run_inference(model_path, device)
+    run_inference(
+        model_path=args.model_path,
+        file_name=args.file_name,
+        device=device,
+        open_plot=True,
+        save_plot=args.save_plot
+    )
