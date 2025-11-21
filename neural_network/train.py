@@ -1,9 +1,11 @@
 import torch
 import os
 import torch.optim as optim
+import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from depth_estimation_net import SiameseStereoNet
 from dataset_loaders.flying_things_loader import FlyingThingsLoader
+from run_depth_model import run_inference
 
 def create_new_version_folder(base_dir):
     """
@@ -38,6 +40,39 @@ def compute_epe(pred, target):
     diff = torch.abs(pred[mask] - target[mask])
     epe = diff.mean().item()
     return epe
+
+def plot_metrics(epoch, train_losses, train_epes, val_losses, val_epes, save_path):
+    """
+    Plots training and validation loss and EPE over epochs.
+    """
+    epochs = list(range(1, epoch + 1))
+
+    plt.figure(figsize=(12, 5))
+
+    # Loss plot
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, train_losses, label='Train Loss')
+    plt.plot(epochs, val_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.grid()
+
+    # EPE plot
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, train_epes, label='Train EPE')
+    plt.plot(epochs, val_epes, label='Validation EPE')
+    plt.xlabel('Epochs')
+    plt.ylabel('End Point Error (EPE)')
+    plt.title('Training and Validation EPE')
+    plt.legend()
+    plt.grid()
+
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
 
 def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
     """
@@ -138,6 +173,10 @@ def main():
     version_folder = create_new_version_folder(results_dir)
     model_save_path = os.path.join(version_folder, "best_stereo_model.pth")
 
+    # Create inference results folder
+    inference_save_path = os.path.join(version_folder, "inference_results")
+    os.makedirs(inference_save_path, exist_ok=True)
+
     print("Preparing datasets:")
 
     # Define the train/val split ratios, and define a set number of training samples to use
@@ -187,6 +226,7 @@ def main():
     print("\nStarting training:\n")
 
     # Train the model for the set number of epochs. We are using a pre-trained model to train on top of (transfer learning), so 20-50 epochs is usually enough.
+    train_losses, train_epes, val_losses, val_epes = [], [], [], []
     best_val_loss = float('inf')
     epochs = 50
 
@@ -206,6 +246,26 @@ def main():
             print(f"Saved new best model (Val Loss: {val_loss:.4f})")
 
         print("\n" + "-" * 50 + "\n")
+
+        # Record metrics for plotting, and save a plot of the current past epochs
+        train_losses.append(train_loss)
+        train_epes.append(train_epe)
+        val_losses.append(val_loss)
+        val_epes.append(val_epe)
+        plot_metrics(
+            epoch+1, train_losses, train_epes, val_losses, val_epes,
+            os.path.join(version_folder, "training_validation_metrics.png")
+        )
+
+        # Run inference on a fixed sample from the validation set after each epoch, saving the results
+        run_inference(
+            model_path=model_save_path,
+            file_name="0000206", # Using a fixed sample from the validation set for consistency
+            device=device,
+            open_plot=False,
+            save_plot=True,
+            save_path=os.path.join(inference_save_path, f"inference_results_epoch_{epoch+1}.png")
+        )
 
 if __name__ == "__main__":
     main()

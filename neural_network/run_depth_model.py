@@ -7,7 +7,7 @@ from pathlib import Path
 from depth_estimation_net import SiameseStereoNet
 from dataset_loaders.stereo_preprocessor import StereoPreprocessor
 
-def run_inference(model_path, file_name, device, open_plot=False, save_plot=True):
+def run_inference(model_path, file_name, device, open_plot=False, save_plot=True, save_path='inference_results.png'):
     """
     Run inference on a set of input images.
     """
@@ -76,9 +76,7 @@ def run_inference(model_path, file_name, device, open_plot=False, save_plot=True
     plt.axis('off')
 
     if save_plot:
-        save_path = 'inference_results.png'
         plt.savefig(save_path, bbox_inches='tight', pad_inches=0.1)
-        print(f"Inference results saved to {save_path}")
 
     if open_plot:
         plt.tight_layout()
