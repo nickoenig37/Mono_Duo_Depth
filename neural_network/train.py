@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from depth_estimation_net import SiameseStereoNet
 from dataset_loaders.flying_things_loader import FlyingThingsLoader
-from run_depth_model import run_inference
+from run_model_with_depth import run_inference
 
 def create_new_version_folder(base_dir):
     """
@@ -181,7 +181,7 @@ def main():
 
     # Define the train/val split ratios, and define a set number of training samples to use
     train_val_split = 0.2
-    n_train = 1000
+    n_train = 100
     n_val = int(n_train * train_val_split / (1 - train_val_split))
 
     # Create dataset loader for the training/validation sets, choosing the loader based on the dataset we would like to use
@@ -260,7 +260,10 @@ def main():
         # Run inference on a fixed sample from the validation set after each epoch, saving the results
         run_inference(
             model_path=model_save_path,
-            file_name="0000206", # Using a fixed sample from the validation set for consistency
+            dataset_dir=f"{flying_things_dataset_dir}/val",
+            left_path="image_clean/left/0000206.png",
+            right_path="image_clean/right/0000206.png",
+            disparity_path="disparity/left/0000206.pfm",
             device=device,
             open_plot=False,
             save_plot=True,

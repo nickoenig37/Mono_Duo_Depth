@@ -7,7 +7,7 @@ from pathlib import Path
 from depth_estimation_net import SiameseStereoNet
 from dataset_loaders.stereo_preprocessor import StereoPreprocessor
 
-def run_inference(model_path, file_name, device, open_plot=False, save_plot=True, save_path='inference_results.png'):
+def run_inference(model_path, dataset_dir, left_path, right_path, disparity_path, device, open_plot=False, save_plot=True, save_path='inference_results.png'):
     """
     Run inference on a set of input images.
     """
@@ -20,24 +20,20 @@ def run_inference(model_path, file_name, device, open_plot=False, save_plot=True
     state_dict = torch.load(model_path, map_location=device)
     model.load_state_dict(state_dict)
     model.eval()
-
-    # Setup path to validation set samples to run on, and specify the file name
-    base_dir = Path("../dataset/FlyingThings3D/val")
     
     # Construct the paths for left, right images and disparity images
-    left_path = base_dir / "image_clean/left" / f"{file_name}.png"
-    right_path = base_dir / "image_clean/right" / f"{file_name}.png"
-    disp_path = base_dir / "disparity/left" / f"{file_name}.pfm"
+    dataset_dir = Path(dataset_dir)
+    left_path = dataset_dir / left_path
+    right_path = dataset_dir / right_path
+    disparity_path = dataset_dir / disparity_path
 
-    if not left_path.exists() or not right_path.exists() or not disp_path.exists():
-        print(f"ERROR: One or more input files do not exist for base_dir {base_dir} and file_name {file_name}")
+    if not left_path.exists() or not right_path.exists() or not disparity_path.exists():
+        print(f"ERROR: One or more input files do not exist for dataset_dir {dataset_dir} and file names {left_path}, {right_path}, {disparity_path}")
         return
 
     # Preprocess the data
     preprocessor = StereoPreprocessor(target_size=(480, 640))
-    left_tensor, right_tensor, target_disp_tensor = preprocessor.load_sample(
-        left_path, right_path, disp_path
-    )
+    left_tensor, right_tensor, target_disp_tensor = preprocessor.load_sample(left_path, right_path, disparity_path)
     
     # Run inference on the preprocessed data using the model
     with torch.no_grad():
@@ -84,11 +80,14 @@ def run_inference(model_path, file_name, device, open_plot=False, save_plot=True
 
 if __name__ == "__main__":
     """
-    Ex Usage. python run_depth_model.py --model_path ../results/v3/best_stereo_model.pth --file_name 0000206 --no_save_plot
+    Ex Usage. run_model_with_depth.py --model_path ../results/v3/best_stereo_model.pth --dataset_dir ../dataset/FlyingThings3D/val --left_path image_clean/left/0000206.png --right_path image_clean/right/0000206.png --disparity_path disparity/left/0000206.pfm --no_save_plot
     """
     parser = argparse.ArgumentParser(description="Run Stereo Depth Inference")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model")
-    parser.add_argument("--file_name", type=str, required=True, help="File name of the sample to run inference on")
+    parser.add_argument("--dataset_dir", type=str, required=True, help="Path to the dataset directory")
+    parser.add_argument("--left_path", type=str, required=True, help="Path to the left image")
+    parser.add_argument("--right_path", type=str, required=True, help="Path to the right image")
+    parser.add_argument("--disparity_path", type=str, required=True, help="Path to the disparity image")
     parser.add_argument("--no_save_plot", action="store_false", dest="save_plot", help="Don't save the plot")
     parser.set_defaults(save_plot=True)
     args = parser.parse_args()
@@ -96,7 +95,10 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     run_inference(
         model_path=args.model_path,
-        file_name=args.file_name,
+        dataset_dir=args.dataset_dir,
+        left_path=args.left_path,
+        right_path=args.right_path,
+        disparity_path=args.disparity_path,
         device=device,
         open_plot=True,
         save_plot=args.save_plot

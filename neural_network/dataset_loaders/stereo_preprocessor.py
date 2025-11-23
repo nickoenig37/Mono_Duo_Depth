@@ -35,7 +35,7 @@ class StereoPreprocessor:
 
         return disparity
 
-    def load_sample(self, left_path, right_path, disparity_path):
+    def load_sample(self, left_path, right_path, disparity_path=None):
         """
         Loads a single sample (Left, Right, Disparity).
         Returns: left_tensor, right_tensor, disp_tensor
@@ -43,34 +43,44 @@ class StereoPreprocessor:
         # Load the Left/Right images as an RGB PIL Image object
         left_img = Image.open(left_path).convert('RGB')
         right_img = Image.open(right_path).convert('RGB')
-        
-        # Load the disparity map, which is a numpy matrix of floats
-        disp_np = self._read_pfm(disparity_path)
 
-        # Ensure disparity is non-negative, as FlyingThings can have negative values depending on camera setup
-        disp_np = np.abs(disp_np)
-        
-        # Get the original dimensions of the left image, which are needed for scaling the disparity values later
-        # This is commonly (540, 960) for FlyingThings3D
-        orig_w, orig_h = left_img.size
-        
         # Apply RGB transforms (Resizes and converts to Tensor)
         left_tensor = self.rgb_transform(left_img)
         right_tensor = self.rgb_transform(right_img)
         
-        # Convert the numpy disparity to a torch tensor
-        disp_tensor = torch.from_numpy(disp_np.copy()).unsqueeze(0).float()
-        
-        # Resize Disparity (Nearest Neighbor to preserve sharp edges)
-        disp_tensor = torch.nn.functional.interpolate(
-            disp_tensor.unsqueeze(0), 
-            size=(self.target_h, self.target_w), 
-            mode='nearest'
-        ).squeeze(0)
-        
-        # Scale the disparity values according to the resizing
-        # If image shrank by 50%, the pixel shift (disparity) also shrank by 50%. We must multiply by the width ratio to fix this.
-        scale_factor = self.target_w / float(orig_w)
-        disp_tensor = disp_tensor * scale_factor
+        # Load Disparity if provided
+        disp_tensor = None
+        if disparity_path is not None:
+            # Load the disparity map, which is a numpy matrix of floats
+            disp_np = self._read_pfm(disparity_path)
 
-        return left_tensor, right_tensor, disp_tensor
+            # Ensure disparity is non-negative, as FlyingThings can have negative values depending on camera setup
+            disp_np = np.abs(disp_np)
+            
+            # Get the original dimensions of the left image, which are needed for scaling the disparity values later
+            # This is commonly (540, 960) for FlyingThings3D
+            orig_w, orig_h = left_img.size
+            
+            # Apply RGB transforms (Resizes and converts to Tensor)
+            left_tensor = self.rgb_transform(left_img)
+            right_tensor = self.rgb_transform(right_img)
+            
+            # Convert the numpy disparity to a torch tensor
+            disp_tensor = torch.from_numpy(disp_np.copy()).unsqueeze(0).float()
+            
+            # Resize Disparity (Nearest Neighbor to preserve sharp edges)
+            disp_tensor = torch.nn.functional.interpolate(
+                disp_tensor.unsqueeze(0), 
+                size=(self.target_h, self.target_w), 
+                mode='nearest'
+            ).squeeze(0)
+            
+            # Scale the disparity values according to the resizing
+            # If image shrank by 50%, the pixel shift (disparity) also shrank by 50%. We must multiply by the width ratio to fix this.
+            scale_factor = self.target_w / float(orig_w)
+            disp_tensor = disp_tensor * scale_factor
+
+        if disp_tensor is not None:
+            return left_tensor, right_tensor, disp_tensor
+        else:
+            return left_tensor, right_tensor
