@@ -1,3 +1,4 @@
+import argparse
 import torch
 import os
 import torch.optim as optim
@@ -157,7 +158,7 @@ def activate_cuda():
 
         return torch.device("cpu")
 
-def main():
+def main(n_train):
     # Activate CUDA if available
     device = activate_cuda()
 
@@ -181,7 +182,6 @@ def main():
 
     # Define the train/val split ratios, and define a set number of training samples to use
     train_val_split = 0.2
-    n_train = 100
     n_val = int(n_train * train_val_split / (1 - train_val_split))
 
     # Create dataset loader for the training/validation sets, choosing the loader based on the dataset we would like to use
@@ -271,4 +271,8 @@ def main():
         )
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Train the SiameseStereoNet model.")
+    parser.add_argument('--train_samples', type=int, default=1000, help='Number of training samples')
+    args = parser.parse_args()
+
+    main(n_train=args.train_samples)
