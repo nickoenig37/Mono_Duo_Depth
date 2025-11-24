@@ -77,6 +77,9 @@ def run_inference(model_path, dataset_dir, left_path, right_path, disparity_path
     if open_plot:
         plt.tight_layout()
         plt.show()
+    else:
+        # Explicitly close the figure to free memory
+        plt.close()
 
 if __name__ == "__main__":
     """
