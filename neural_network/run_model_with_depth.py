@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from PIL import Image
 from depth_estimation_net import SiameseStereoNet
 from dataset_loaders.stereo_preprocessor import StereoPreprocessor
 
@@ -46,9 +47,11 @@ def run_inference(model_path, dataset_dir, left_path, right_path, disparity_path
     predicted_disparity_map = output.squeeze().cpu().numpy()
     ground_truth_disparity_map = target_disp_tensor.squeeze().cpu().numpy()
 
-    # Retrieve the input left image tensor for visualization, and do permutations for visualization
-    left_input_image = left_tensor.permute(1, 2, 0).numpy()
-    left_input_image = np.clip(left_input_image, 0, 1)
+    # Create the left input image tensor but without the normalization for visualization
+    left_input_image = Image.open(left_path).convert('RGB')
+    left_transformed_image = preprocessor.rgb_crop_only_transform(left_input_image)
+    left_transformed_image = left_transformed_image.permute(1, 2, 0).numpy()
+    left_final_image = np.clip(left_transformed_image, 0, 1)
 
     # Plot everything on one figure with 3 subplots
     plt.figure(figsize=(14, 5))
@@ -56,7 +59,7 @@ def run_inference(model_path, dataset_dir, left_path, right_path, disparity_path
     # Plot 1: Left Input Image
     plt.subplot(1, 3, 1)
     plt.title("Left Input Image After Preprocessing")
-    plt.imshow(left_input_image)
+    plt.imshow(left_final_image)
     plt.axis('off')
 
     # Plot 2: Predicted Disparity
@@ -83,7 +86,7 @@ def run_inference(model_path, dataset_dir, left_path, right_path, disparity_path
 
 if __name__ == "__main__":
     """
-    Ex Usage. run_model_with_depth.py --model_path ../results/v3/best_stereo_model.pth --dataset_dir ../dataset/FlyingThings3D/val --left_path image_clean/left/0000206.png --right_path image_clean/right/0000206.png --disparity_path disparity/left/0000206.pfm --no_save_plot
+    Ex Usage. run_model_with_depth.py --model_path ../results/v7/best_stereo_model.pth --dataset_dir ../dataset/FlyingThings3D/val --left_path image_clean/left/0000206.png --right_path image_clean/right/0000206.png --disparity_path disparity/left/0000206.pfm --no_save_plot
     """
     parser = argparse.ArgumentParser(description="Run Stereo Depth Inference")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model")

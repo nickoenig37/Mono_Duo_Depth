@@ -16,6 +16,12 @@ class StereoPreprocessor:
         self.rgb_transform = Transforms.Compose([
             Transforms.Resize((self.target_h, self.target_w)),
             Transforms.ToTensor(),
+            Transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # The normalization values expected from ImageNet
+        ])
+        # For visualization purposes, we need a transform that only resizes and converts to tensor, without normalization
+        self.rgb_crop_only_transform = Transforms.Compose([
+            Transforms.Resize((self.target_h, self.target_w)),
+            Transforms.ToTensor()
         ])
     
     def _read_pfm(self, file_path):

@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+from PIL import Image
 from depth_estimation_net import SiameseStereoNet
 from dataset_loaders.stereo_preprocessor import StereoPreprocessor
 
@@ -44,9 +45,11 @@ def run_inference(model_path, dataset_dir, left_path, right_path, device, open_p
     # Process the reuslts, retrieving the predicted disparity map and converting to numpy for visualization
     predicted_disparity_map = output.squeeze().cpu().numpy()
 
-    # Retrieve the input left image tensor for visualization, and do permutations for visualization
-    left_input_image = left_tensor.permute(1, 2, 0).numpy()
-    left_input_image = np.clip(left_input_image, 0, 1)
+    # Create the left input image tensor but without the normalization for visualization
+    left_input_image = Image.open(left_path).convert('RGB')
+    left_transformed_image = preprocessor.rgb_crop_only_transform(left_input_image)
+    left_transformed_image = left_transformed_image.permute(1, 2, 0).numpy()
+    left_final_image = np.clip(left_transformed_image, 0, 1)
 
     # Plot everything on one figure with 2 subplots
     plt.figure(figsize=(14, 5))
@@ -54,7 +57,7 @@ def run_inference(model_path, dataset_dir, left_path, right_path, device, open_p
     # Plot 1: Left Input Image
     plt.subplot(1, 2, 1)
     plt.title("Left Input Image After Preprocessing")
-    plt.imshow(left_input_image)
+    plt.imshow(left_final_image)
     plt.axis('off')
 
     # Plot 2: Predicted Disparity
@@ -75,8 +78,8 @@ def run_inference(model_path, dataset_dir, left_path, right_path, device, open_p
 
 if __name__ == "__main__":
     """
-    Ex Usage. python run_model.py --model_path ../results/v3/best_stereo_model.pth --dataset_dir ../dataset/FlyingThings3D/val --left_path image_clean/left/0000206.png --right_path image_clean/right/0000206.png --no_save_plot
-    Ex Usage. python run_model.py --model_path ../results/v3/best_stereo_model.pth --dataset_dir ../dataset/RobotDataset --left_path 000208/left.jpg --right_path 000208/right.jpg --no_save_plot
+    Ex Usage. python run_model.py --model_path ../results/v7/best_stereo_model.pth --dataset_dir ../dataset/FlyingThings3D/val --left_path image_clean/left/0000206.png --right_path image_clean/right/0000206.png --no_save_plot
+    Ex Usage. python run_model.py --model_path ../results/v7/best_stereo_model.pth --dataset_dir ../dataset/RobotDataset --left_path 000208/left.jpg --right_path 000208/right.jpg --no_save_plot
     """
     parser = argparse.ArgumentParser(description="Run Stereo Depth Inference")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model")

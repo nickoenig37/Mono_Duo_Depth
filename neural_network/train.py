@@ -220,8 +220,9 @@ def main(n_train):
     # Define the loss function. We are using SmoothL1Loss instead of MSE as it is less sensitive to outliers (like edges)
     criterion = torch.nn.SmoothL1Loss()
 
-    # Define the optimizer — Adam is good for training most CNNs
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    # Define the optimizer. Adam is good for training most CNNs
+    # Using weight decay (L2 regularization) to help prevent overfitting
+    optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
     print("\nStarting training:\n")
 
