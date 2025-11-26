@@ -4,72 +4,97 @@ import torchvision.models as models
 
 class SiameseStereoNet(nn.Module):
     """
-    A Stereo Matching Network using a Siamese ResNet backbone.
-    
-    Structure:
-      - Shared Encoder: ResNet-18 (Pre-trained) truncated at Layer 2.
-      - Cost Volume: Absolute difference between Left and Right features.
-      - Decoder: Upsamples features to predict pixel disparity.
+    A Siamese Network for Depth Estimation from Stereo Image Pairs.
+    This architecture uses a shared ResNet-18 backbone to extract features
+    from both left and right images, constructs a cost volume by concatenating
+    the features at the bottleneck, and decodes the fused features to predict
+    a disparity map.
     """
 
     def __init__(self):
         super(SiameseStereoNet, self).__init__()
 
-        # Load a pre-trained ResNet-18 model, which alredy knows how to see edges/textures from ImageNet.
+        # Load a pre-trained ResNet-18 model, which already knows how to see edges/textures from ImageNet.
         base_model = models.resnet18(weights='DEFAULT')
         
-        # Define the encoder (shared for both left/right images)
-        # The output feature map will have 128 channels (after layer2)
-        self.encoder = nn.Sequential(
+        # Encoder Blocks
+
+        # Encoder 1: Returns 64 channels at 1/2 resolution
+        self.encoder_layer_1 = nn.Sequential(
             base_model.conv1,
             base_model.bn1,
             base_model.relu,
-            base_model.maxpool,
-            base_model.layer1,
-            base_model.layer2 
         )
-            
-        # Define the decoder, upsampling 3 times to get back to input resolution
-        self.decoder = nn.Sequential(
-            # Upsample 1: 128 -> 64 channels
-            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1),
+        # Encoder 2: Returns 64 channels at 1/4 resolution
+        self.encoder_layer_2 = nn.Sequential(
+            base_model.maxpool,
+            base_model.layer1
+        )
+        # Encoder 3: Returns 128 channels at 1/8 resolution
+        self.encoder_layer_3 = base_model.layer2
+
+        # Decoder Blocks (With Skip Connections)
+        
+        # Decoder 1: Input (256 + 256 from fusion) -> Output 64
+        self.decoder_layer1 = nn.Sequential(
+            nn.Conv2d(256, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1), # Upsample to 1/4
+            nn.ReLU(inplace=True)
+        )
+        # Decoder 2: Input (64 from dec1 + 64 from skip layer 2) -> Output 64
+        self.decoder_layer2 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, padding=1), # Compress concatenation
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-
-            # Upsample 2: 64 -> 32 channels
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(32),
+            nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2, padding=1), # Upsample to 1/2
+            nn.ReLU(inplace=True)
+        )
+        # Decoder 3: Input (64 from dec2 + 64 from skip layer 1) -> Output 32
+        self.decoder_layer3 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-
-            # Upsample 3: 32 -> 16 channels
-            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(inplace=True),
-
-            # Final Projection: 16 -> 1 channel (Disparity)
-            nn.Conv2d(16, 1, kernel_size=3, padding=1)
+            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1), # Upsample to Full
+            nn.ReLU(inplace=True)
         )
 
+        # Final Projection
+        self.final = nn.Conv2d(32, 1, kernel_size=3, padding=1)
+
+    def extract_features(self, x):
+        # Pass x through encoder, saving intermediate outputs
+        l1 = self.encoder_layer_1(x)  # 1/2 res
+        l2 = self.encoder_layer_2(l1) # 1/4 res
+        l3 = self.encoder_layer_3(l2) # 1/8 res
+        return l1, l2, l3
+
     def forward(self, left, right):
-        """
-        Args:
-            left: (B, 3, H, W) - The reference image
-            right: (B, 3, H, W) - The secondary image
+        # Extract Features from both images
+        l1_L, l2_L, l3_L = self.extract_features(left)
+        l1_R, l2_R, l3_R = self.extract_features(right)
+
+        # Cost Volume construction. We concatenate features from both images at the bottleneck (128 + 128 = 256 channels)
+        # This allows the network to learn the relationship better than simple subtraction
+        bottleneck = torch.cat((l3_L, l3_R), dim=1)
+
+        # Decode with Skip Connections (Using LEFT image features for guidance). Upsample 1/8 -> 1/4
+        x = self.decoder_layer1(bottleneck)
         
-        Returns:
-            disparity: (B, 1, H, W) - Pixel shift values
-        """
+        # Concatenate with Layer 2 features from Left Image (Skip Connection). x is 64ch, l2_L is 64ch -> Total 128ch
+        x = torch.cat((x, l2_L), dim=1)
         
-        # Step 1: Extract the features using the shared encoder for both images
-        f_left = self.encoder(left)
-        f_right = self.encoder(right)
+        # Upsample 1/4 -> 1/2
+        x = self.decoder_layer2(x)
 
-        # Step 2: Calculate the cost volume as an absolute difference between the left and right features
-        # This explicitly captures the disparity information between the two views
-        cost_volume = torch.abs(f_left - f_right)
+        # Concatenate with Layer 1 features from Left Image (Skip Connection). x is 64ch, l1_L is 64ch -> Total 128ch
+        x = torch.cat((x, l1_L), dim=1)
+        
+        # Upsample 1/2 -> Full
+        x = self.decoder_layer3(x)
 
-        # Step 3: Decode the cost volume to predict the disparity map
-        disparity = self.decoder(cost_volume)
-
-        # Step 4: Post-process the data, ensuring disparity is non-negative by using the ReLU activation
+        # Final Prediction
+        disparity = self.final(x)
+        
         return torch.relu(disparity)
