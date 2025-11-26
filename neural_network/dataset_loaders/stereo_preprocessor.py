@@ -17,8 +17,8 @@ class StereoPreprocessor:
             Transforms.Resize((self.target_h, self.target_w)),
             Transforms.ToTensor(),
             Transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # The normalization values expected from ImageNet
-        ])
-        # For visualization purposes, we need a transform that only resizes and converts to tensor, without normalization
+        ])  
+        # A transform that only resizes and converts to tensor, used for visualization purposes
         self.rgb_crop_only_transform = Transforms.Compose([
             Transforms.Resize((self.target_h, self.target_w)),
             Transforms.ToTensor()
@@ -50,7 +50,7 @@ class StereoPreprocessor:
         left_img = Image.open(left_path).convert('RGB')
         right_img = Image.open(right_path).convert('RGB')
 
-        # Apply RGB transforms (Resizes and converts to Tensor)
+        # Apply RGB transforms (Resizes, converts to Tensor, and normalizes)
         left_tensor = self.rgb_transform(left_img)
         right_tensor = self.rgb_transform(right_img)
         

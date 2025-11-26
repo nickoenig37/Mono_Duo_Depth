@@ -210,9 +210,10 @@ def main(n_train):
     print(f"Training Samples: {len(train_dataset)} | Validation Samples: {len(val_dataset)}") 
 
     # Create DataLoaders for training and validation sets so we can iterate through them in batches instead of all at once
-    # batch_size=8 is good for 640x480 on most GPUs, this can be reduced to batch_size=4 if memory errors occur
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=2)
+    # Batch size of 4 is too small, anything over 8 causes OOMs on 8GB GPUs
+    # 4-6 workers is good, anything under underutilizes CPU, anything over causes OOMs
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=6)
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=6)
 
     # Initialize the Neural Network, based on a Siamese Architecture
     model = SiameseStereoNet().to(device)
