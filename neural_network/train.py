@@ -225,12 +225,16 @@ def main(n_train):
     # Using weight decay (L2 regularization) to help prevent overfitting
     optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
+    # Use a learning rate scheduler to reduce learning rate if validation loss plateaus
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
+
     print("\nStarting training:\n")
 
     # Train the model for the set number of epochs. We are using a pre-trained model to train on top of (transfer learning), so 20-50 epochs is usually enough.
     train_losses, train_epes, val_losses, val_epes = [], [], [], []
     best_val_loss = float('inf')
     epochs = 50
+    current_lr = optimizer.param_groups[0]['lr']
 
     for epoch in range(epochs):
         train_loss, train_epe, val_loss, val_epe = train_epoch(
@@ -240,6 +244,13 @@ def main(n_train):
         print(f"Epoch [{epoch+1}/{epochs}]:")
         print(f"Train Loss: {train_loss:.4f} | Train EPE: {train_epe:.4f} px")
         print(f"Val   Loss: {val_loss:.4f} | Val   EPE: {val_epe:.4f} px")
+
+        # Step the scheduler based on validation loss
+        scheduler.step(val_loss)
+        new_lr = optimizer.param_groups[0]['lr']
+        if new_lr != current_lr:
+            print(f"Learning rate changed from {current_lr:.6f} to {new_lr:.6f}")
+            current_lr = new_lr
 
         # Save the model if the validation loss has improved
         if val_loss < best_val_loss:

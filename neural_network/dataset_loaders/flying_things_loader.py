@@ -1,4 +1,5 @@
 import os
+import random
 from torch.utils.data import Dataset
 from dataset_loaders.stereo_preprocessor import StereoPreprocessor
 
@@ -87,10 +88,14 @@ class FlyingThingsLoader(Dataset):
                         count += 1
                     else:
                         print(f"WARNING: Missing files for sample, skipping: {l_path}, {r_path}, {d_path}")
+        
+        # Shuffle the samples to ensure random order during training
+        random.seed(42)
+        random.shuffle(self.samples)
 
-                    # If a max sample limit is set, stop scanning when reached
-                    if self.max_samples is not None and count >= self.max_samples:
-                        return
+        # If a max sample limit is set, truncate the samples list
+        if self.max_samples is not None:
+            self.samples = self.samples[:self.max_samples]
 
     def __len__(self):
         """
