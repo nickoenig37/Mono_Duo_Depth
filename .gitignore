@@ -64,3 +64,6 @@ CATKIN_IGNORE
 !dataset/.gitkeep
 /results/*
 !results/.gitkeep
+
+# Ignore the run_depth_model.py output plots
+neural_network/inference_results.png

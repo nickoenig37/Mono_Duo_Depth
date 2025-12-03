@@ -1,9 +1,12 @@
+import argparse
 import torch
-import torch.optim as optim
-from torch.utils.data import random_split, DataLoader
-from depthEstimationNet import DepthEstimationNet
-from imageDepthDataset import ImageDepthDataset
 import os
+import torch.optim as optim
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
+from depth_estimation_net import SiameseStereoNet
+from dataset_loaders.flying_things_loader import FlyingThingsLoader
+from run_model_with_depth import run_inference
 
 def create_new_version_folder(base_dir):
     """
@@ -22,86 +25,125 @@ def create_new_version_folder(base_dir):
     print(f"Created results folder: {version_folder}\n")
     return version_folder
 
-def compute_metrics(pred, target):
-    """Computes AbsRel and threshold accuracies."""
-    mask = target > 0  # avoid division by zero
-    pred = pred[mask]
-    target = target[mask]
+def compute_epe(pred, target):
+    """
+    Computes End Point Error (EPE).
+    This is the average distance (in pixels) between the predicted disparity 
+    and the ground truth disparity.
+    """
+    # We only evaluate on valid pixels (disparity > 0)
+    mask = target > 0
+    
+    if mask.sum() == 0:
+        return 0.0
 
-    abs_rel = torch.mean(torch.abs(pred - target) / target).item()
+    # Calculate absolute difference in pixels
+    diff = torch.abs(pred[mask] - target[mask])
+    epe = diff.mean().item()
+    return epe
 
-    ratio = torch.max(pred / target, target / pred)
-    delta = torch.mean((ratio < 1.25).float()).item()
+def plot_metrics(epoch, train_losses, train_epes, val_losses, val_epes, save_path):
+    """
+    Plots training and validation loss and EPE over epochs.
+    """
+    epochs = list(range(1, epoch + 1))
 
-    return abs_rel, delta
+    plt.figure(figsize=(12, 5))
+
+    # Loss plot
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, train_losses, label='Train Loss')
+    plt.plot(epochs, val_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.grid()
+
+    # EPE plot
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, train_epes, label='Train EPE')
+    plt.plot(epochs, val_epes, label='Validation EPE')
+    plt.xlabel('Epochs')
+    plt.ylabel('End Point Error (EPE)')
+    plt.title('Training and Validation EPE')
+    plt.legend()
+    plt.grid()
+
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
 
 def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
     """
-    Runs one full epoch of training over the dataset.
-
-    Args:
-        model: The depth estimation neural network.
-        train_loader: DataLoader for the training dataset.
-        val_loader: DataLoader for the validation dataset.
-        criterion: The loss function used to measure prediction error.
-        optimizer: The optimization algorithm (e.g., Adam, SGD).
-        device: 'cuda' or 'cpu' device to perform computations on.
-
-    Returns:
-        Average loss value over the epoch.
+    Runs one full epoch of training.
     """
     model.train()
     total_train_loss = 0
-    total_train_absrel = 0
-    total_train_delta = 0
+    total_train_epe = 0
 
-    # ---- Training ----
-    for batch in train_loader:
+    for batch_idx, batch in enumerate(train_loader):
         left = batch["left"].to(device)
         right = batch["right"].to(device)
-        color = batch["color"].to(device)
-        depth = batch["depth"].to(device)
+        target_disp = batch["disparity"].to(device).squeeze(1)
+
+        # Create a valid mask to ignore invalid disparity values
+        mask = (target_disp > 0) & (target_disp < 192) # 192 is standard max disparity
+        
+        # If batch has no valid pixels, skip it to avoid NaN
+        if mask.sum() == 0:
+            print("WARNING: Batch with no valid pixels, skipping.")
+            continue
 
         optimizer.zero_grad()
-        output = model(left, right, color)
-        loss = criterion(output, depth)
+        
+        # Forward Pass
+        pred_disp = model(left, right).squeeze(1)
+        
+        # Calculate Loss ONLY on valid pixels
+        loss = criterion(pred_disp[mask], target_disp[mask])
+        
         loss.backward()
         optimizer.step()
 
         total_train_loss += loss.item()
+        
+        # Calculate Metric (EPE)
+        epe = compute_epe(pred_disp, target_disp)
+        total_train_epe += epe
 
-        absrel, delta = compute_metrics(output, depth)
-        total_train_absrel += absrel
-        total_train_delta += delta
-
-    avg_train_loss = total_train_loss / len(train_loader)
-    avg_train_absrel = total_train_absrel / len(train_loader)
-    avg_train_delta = total_train_delta / len(train_loader)
+    # Average metrics
+    num_batches = len(train_loader)
+    avg_train_loss = total_train_loss / num_batches
+    avg_train_epe = total_train_epe / num_batches
 
     # ---- Validation ----
     model.eval()
     total_val_loss = 0
-    total_val_absrel = 0
-    total_val_delta = 0
+    total_val_epe = 0
+    
     with torch.no_grad():
         for batch in val_loader:
             left = batch["left"].to(device)
             right = batch["right"].to(device)
-            color = batch["color"].to(device)
-            depth = batch["depth"].to(device)
+            target_disp = batch["disparity"].to(device)
+            
+            mask = (target_disp > 0) & (target_disp < 192)
+            if mask.sum() == 0: continue
 
-            output = model(left, right, color)
-            total_val_loss += criterion(output, depth).item()
+            pred_disp = model(left, right)
+            
+            loss = criterion(pred_disp[mask], target_disp[mask])
+            total_val_loss += loss.item()
 
-            absrel, delta = compute_metrics(output, depth)
-            total_val_absrel += absrel
-            total_val_delta += delta
+            epe = compute_epe(pred_disp, target_disp)
+            total_val_epe += epe
 
     avg_val_loss = total_val_loss / len(val_loader)
-    avg_val_absrel = total_val_absrel / len(val_loader)
-    avg_val_delta = total_val_delta / len(val_loader)
+    avg_val_epe = total_val_epe / len(val_loader)
 
-    return avg_train_loss, avg_train_absrel, avg_train_delta, avg_val_loss, avg_val_absrel, avg_val_delta
+    return avg_train_loss, avg_train_epe, avg_val_loss, avg_val_epe
 
 def activate_cuda():
     if torch.cuda.is_available():
@@ -116,7 +158,7 @@ def activate_cuda():
 
         return torch.device("cpu")
 
-def main():
+def main(n_train):
     # Activate CUDA if available
     device = activate_cuda()
 
@@ -130,44 +172,85 @@ def main():
     
     # Create a versioned results folder
     version_folder = create_new_version_folder(results_dir)
-    model_save_path = os.path.join(version_folder, "best_depth_model.pth")
+    model_save_path = os.path.join(version_folder, "best_stereo_model.pth")
 
-    # Create a DataLoader for the dataset
-    dataset = ImageDepthDataset(root_dir=dataset_dir, save_transformed=False)
+    # Create inference results folder
+    inference_save_path = os.path.join(version_folder, "inference_results")
+    os.makedirs(inference_save_path, exist_ok=True)
 
-    # Compute the split sizes of the validation and training sets
-    train_val_split = 0.8
-    n_total = len(dataset)
-    n_train = int(n_total * train_val_split)
-    n_val = n_total - n_train
+    print("Preparing datasets:")
 
-    # Split the dataset based on the split sizes computed
-    train_dataset, val_dataset = random_split(dataset, [n_train, n_val])
+    # Define the train/val split ratios, and define a set number of training samples to use
+    train_val_split = 0.2
+    n_val = int(n_train * train_val_split / (1 - train_val_split))
+
+    # Create dataset loader for the training/validation sets, choosing the loader based on the dataset we would like to use
+    flying_things_dataset_dir = os.path.join(dataset_dir, "FlyingThings3D")
+    train_dataset = FlyingThingsLoader( # Using FlyingThings dataset, resizing images for speed/memory efficiency
+        root_dir=flying_things_dataset_dir, 
+        split='train', 
+        target_size=(480, 640),
+        max_samples=n_train
+    )
+    val_dataset = FlyingThingsLoader(
+        root_dir=flying_things_dataset_dir, 
+        split='val', 
+        target_size=(480, 640),
+        max_samples=n_val
+    )
+
+    # Safety Check
+    if len(train_dataset) == 0:
+        print("Error: Train dataset is empty. Check your paths.")
+        return
+    elif len(val_dataset) == 0:
+        print("Error: Validation dataset is empty. Check your paths.")
+        return
+
+    print(f"Training Samples: {len(train_dataset)} | Validation Samples: {len(val_dataset)}") 
 
     # Create DataLoaders for training and validation sets so we can iterate through them in batches instead of all at once
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
+    # Batch size of 4 is too small, anything over 8 causes OOMs on 8GB GPUs
+    # 4-6 workers is good, anything under underutilizes CPU, anything over causes OOMs
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=6)
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=6)
 
-    # Initialize the depth estimation model and move it to the device
-    model = DepthEstimationNet().to(device)
+    # Initialize the Neural Network, based on a Siamese Architecture
+    model = SiameseStereoNet().to(device)
 
-    # Define the loss function — Mean Squared Error is common for regression tasks
-    criterion = torch.nn.MSELoss()
+    # Define the loss function. We are using SmoothL1Loss instead of MSE as it is less sensitive to outliers (like edges)
+    criterion = torch.nn.SmoothL1Loss()
 
-    # Define the optimizer — Adam is good for training most CNNs
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    # Define the optimizer. Adam is good for training most CNNs
+    # Using weight decay (L2 regularization) to help prevent overfitting
+    optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
 
-    print("\nStarting training...\n")
+    # Use a learning rate scheduler to reduce learning rate if validation loss plateaus
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
 
-    # Train the model for the set number of epochs
+    print("\nStarting training:\n")
+
+    # Train the model for the set number of epochs. We are using a pre-trained model to train on top of (transfer learning), so 20-50 epochs is usually enough.
+    train_losses, train_epes, val_losses, val_epes = [], [], [], []
     best_val_loss = float('inf')
-    epochs = 1000
+    epochs = 50
+    current_lr = optimizer.param_groups[0]['lr']
+
     for epoch in range(epochs):
-        train_loss, train_absrel, train_delta, val_loss, val_absrel, val_delta = train_epoch(model, train_loader, val_loader, criterion, optimizer, device)
-        print(f"Epoch [{epoch+1}]:")
-        print(f"Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
-        print(f"Train Absolute Relative Error = {train_absrel:.4f}, Train Threshold Accuracy (δ < 1.25) = {train_delta:.4f}")
-        print(f"Val Absolute Relative Error = {val_absrel:.4f}, Val Threshold Accuracy (δ < 1.25) = {val_delta:.4f}")
+        train_loss, train_epe, val_loss, val_epe = train_epoch(
+            model, train_loader, val_loader, criterion, optimizer, device
+        )
+        
+        print(f"Epoch [{epoch+1}/{epochs}]:")
+        print(f"Train Loss: {train_loss:.4f} | Train EPE: {train_epe:.4f} px")
+        print(f"Val   Loss: {val_loss:.4f} | Val   EPE: {val_epe:.4f} px")
+
+        # Step the scheduler based on validation loss
+        scheduler.step(val_loss)
+        new_lr = optimizer.param_groups[0]['lr']
+        if new_lr != current_lr:
+            print(f"Learning rate changed from {current_lr:.6f} to {new_lr:.6f}")
+            current_lr = new_lr
 
         # Save the model if the validation loss has improved
         if val_loss < best_val_loss:
@@ -177,5 +260,32 @@ def main():
 
         print("\n" + "-" * 50 + "\n")
 
+        # Record metrics for plotting, and save a plot of the current past epochs
+        train_losses.append(train_loss)
+        train_epes.append(train_epe)
+        val_losses.append(val_loss)
+        val_epes.append(val_epe)
+        plot_metrics(
+            epoch+1, train_losses, train_epes, val_losses, val_epes,
+            os.path.join(version_folder, "training_validation_metrics.png")
+        )
+
+        # Run inference on a fixed sample from the validation set after each epoch, saving the results
+        run_inference(
+            model_path=model_save_path,
+            dataset_dir=f"{flying_things_dataset_dir}/val",
+            left_path="image_clean/left/0000206.png",
+            right_path="image_clean/right/0000206.png",
+            disparity_path="disparity/left/0000206.pfm",
+            device=device,
+            open_plot=False,
+            save_plot=True,
+            save_path=os.path.join(inference_save_path, f"inference_results_epoch_{epoch+1}.png")
+        )
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Train the SiameseStereoNet model.")
+    parser.add_argument('--train_samples', type=int, default=1000, help='Number of training samples')
+    args = parser.parse_args()
+
+    main(n_train=args.train_samples)
