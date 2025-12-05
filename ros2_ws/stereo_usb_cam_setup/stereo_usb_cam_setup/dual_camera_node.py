@@ -14,7 +14,7 @@ class DualCameraPublisher(Node):
         self.declare_parameter('right_camera_device', '/dev/cam_right')
         self.declare_parameter('frame_rate', 30)
         self.declare_parameter('width', 1280)
-        self.declare_parameter('height', 800)  # Try maximum height for full FOV
+        self.declare_parameter('height', 720)  # Try maximum height for full FOV
         self.declare_parameter('crop_factor', 1.0)  # For FOV adjustment if needed
         self.declare_parameter('use_mjpg', True)  # Set to False to try YUYV format
 
@@ -65,73 +65,41 @@ class DualCameraPublisher(Node):
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y','U','Y','V'))
             format_name = "YUYV"
         
-        # Set camera properties with error handling
-        try:
-            # Enable auto-exposure and auto-white balance for better color reproduction
-            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # Aperture Priority Mode (full auto)
-            cap.set(cv2.CAP_PROP_AUTO_WB, 1)  # Enable auto white balance
-            
-            # Optimize image quality settings for proper brightness
-            cap.set(cv2.CAP_PROP_BRIGHTNESS, 10)       # Slightly increased brightness
-            cap.set(cv2.CAP_PROP_CONTRAST, 45)         # Moderate contrast
-            cap.set(cv2.CAP_PROP_SATURATION, 64)       # Default saturation
-            cap.set(cv2.CAP_PROP_SHARPNESS, 80)        # Moderate sharpness
-            cap.set(cv2.CAP_PROP_GAMMA, 400)           # Default gamma
-        except Exception as e:
-            self.get_logger().warn(f"Could not set some camera properties for {camera_name}: {e}")
+        #    3. CLEANUP: Removed hardcoded brightness/contrast/gamma. 
+        # Rely on the camera's internal Auto-Exposure first.
+        # 0.75 is often the flag for "Enable Auto Exposure" in V4L2 via OpenCV, but varies by backend.
+        # Safest is to NOT set it and let firmware default, or use v4l2-ctl externally.
         
-        # Verify the settings
-        actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        actual_fps = cap.get(cv2.CAP_PROP_FPS)
-        buffer_size = int(cap.get(cv2.CAP_PROP_BUFFERSIZE))
-        auto_exposure = cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)
-        brightness = cap.get(cv2.CAP_PROP_BRIGHTNESS)
-        
-        self.get_logger().info(f"{camera_name} camera configured:")
-        self.get_logger().info(f"  Resolution: {actual_width}x{actual_height}")
-        self.get_logger().info(f"  Format: {format_name}")
-        self.get_logger().info(f"  FPS: {actual_fps}")
-        self.get_logger().info(f"  Buffer size: {buffer_size}")
-        self.get_logger().info(f"  Auto exposure: {auto_exposure}")
-        self.get_logger().info(f"  Brightness: {brightness}")
-        
-        if actual_width != self.width or actual_height != self.height:
-            self.get_logger().warn(f"{camera_name} camera: Requested {self.width}x{self.height}, got {actual_width}x{actual_height}")
-
-    def process_frame(self, frame):
-        """Process frame with optional cropping for FOV matching"""
-        if self.crop_factor != 1.0:
-            h, w = frame.shape[:2]
-            crop_h = int(h / self.crop_factor)
-            crop_w = int(w / self.crop_factor)
-            start_h = (h - crop_h) // 2
-            start_w = (w - crop_w) // 2
-            frame = frame[start_h:start_h+crop_h, start_w:start_w+crop_w]
-            # Resize back to original resolution
-            frame = cv2.resize(frame, (w, h))
-        return frame
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.get_logger().info(f"{camera_name} configured: {actual_w}x{actual_h} at {self.frame_rate} FPS")
 
     def timer_callback(self):
-        # Capture timestamp as early as possible for synchronization
+        # Capture timestamp as early as possible
         capture_time = self.get_clock().now().to_msg()
         
-        # Read from both cameras sequentially but as quickly as possible
-        ret_left, frame_left = self.cap_left.read()
-        ret_right, frame_right = self.cap_right.read()
+        # 1. Grab both (Hardware trigger)
+        self.cap_left.grab()
+        self.cap_right.grab()
 
-        # Publish both frames with the same timestamp for better synchronization
+        # 2. Retrieve (Decode)
+        ret_left, frame_left = self.cap_left.retrieve()
+        ret_right, frame_right = self.cap_right.retrieve()
+
+        # 3. Publish Left
         if ret_left:
-            processed_frame_left = self.process_frame(frame_left)
-            msg_left = self.bridge.cv2_to_imgmsg(processed_frame_left, encoding='bgr8')
+            # ERROR WAS HERE: "processed_frame_left = self.process_frame(frame_left)"
+            # FIX: Just use frame_left directly
+            msg_left = self.bridge.cv2_to_imgmsg(frame_left, encoding='bgr8')
             msg_left.header.stamp = capture_time
             msg_left.header.frame_id = 'camera_left_optical_frame'
             self.left_pub.publish(msg_left)
 
+        # 4. Publish Right
         if ret_right:
-            processed_frame_right = self.process_frame(frame_right)
-            msg_right = self.bridge.cv2_to_imgmsg(processed_frame_right, encoding='bgr8')
-            msg_right.header.stamp = capture_time  # Same timestamp for synchronization
+            # FIX: Just use frame_right directly
+            msg_right = self.bridge.cv2_to_imgmsg(frame_right, encoding='bgr8')
+            msg_right.header.stamp = capture_time
             msg_right.header.frame_id = 'camera_right_optical_frame'
             self.right_pub.publish(msg_right)
 

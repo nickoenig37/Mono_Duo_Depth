@@ -321,7 +321,11 @@ class DatasetRecorderNode(Node):
 
         # Build candidate times (use median of latest stamps to reduce outliers)
         latest = [to_ns(left[-1]), to_ns(right[-1]), to_ns(color[-1]), to_ns(depth[-1])]
-        target_ns = sorted(latest)[len(latest)//2]
+
+        # In dataset_recorder_node.py inside _pick_synced_set
+        # TRYING FOR CONFIG TO BOTTLENECKING VALS
+        target_ns = min(latest)
+        # target_ns = sorted(latest)[len(latest)//2]
         slop_ns = int(slop_sec * 1e9)
 
         def nearest_within(buf, t_ns):

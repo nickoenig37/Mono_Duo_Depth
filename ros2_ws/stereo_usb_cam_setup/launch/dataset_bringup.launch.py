@@ -46,14 +46,14 @@ def generate_launch_description():
         }.items()
     )
 
-    # Dual USB camera node
-    dual_camera_node = Node(
-        package='stereo_usb_cam_setup',
-        executable='dual_camera_node',
-        name='dual_camera_publisher',
-        output='screen',
-        parameters=[get_node_params('dual_camera_node')]
-    )
+    # # Dual USB camera node
+    # dual_camera_node = Node(
+    #     package='stereo_usb_cam_setup',
+    #     executable='dual_camera_node',
+    #     name='dual_camera_publisher',
+    #     output='screen',
+    #     parameters=[get_node_params('dual_camera_node')]
+    # )
 
     # Dataset recorder node
     dataset_recorder = Node(

@@ -12,8 +12,8 @@ global_args:
   
   # Camera Parameters
   align_depth: true                                 # Whether to enable depth image alignment for RealSense camera.
-  width: 1280 # True Depth is width is 848 (scaled to match higher color)
-  height: 720 # True Depth is height is 480 (scaled to match higher color)
+  width: 640 # True Depth is width is 848 (scaled to match higher color)
+  height: 480 # True Depth is height is 480 (scaled to match higher color)
   fps: 30 # Max is 90
 
 # Parameters for the dual USB camera node
@@ -22,16 +22,18 @@ dual_camera_node:
     left_camera_device: "/dev/cam_left"
     right_camera_device: "/dev/cam_right"
     frame_rate: 30
+    # width: 1280      # Changed from 640/800
+    # height: 720      # Changed to match 16:9 aspect ratio
     width: 640
     height: 480
     crop_factor: 1.0
-    use_mjpg: true
+    use_mjpg: true   # MUST BE TRUE for dual OV2710
 
 # Parameters for dataset recording node
 dataset_recorder_node:
   ros__parameters:
     dataset_dir: "dataset"           # base directory for all runs
-    capture_period_sec: 0.5          # save period (0.5s = ~2 frames/sec)
+    capture_period_sec: 0.3          # save period (0.5s = ~2 frames/sec)
     warmup_seconds: 1.0              # time to wait before first save
     jpeg_quality: 95
     png_compression: 3
@@ -41,9 +43,13 @@ dataset_recorder_node:
     color_topic: "/camera/camera/color/image_raw"
     depth_topic: "/camera/camera/aligned_depth_to_color/image_raw"
     # time-window sync parameters
-    sync_time_slop: 0.15              # target sync tolerance (adaptive will try 0.05s, 0.1s, 0.2s)
-    buffer_size: 20                 # frames kept per topic (increased for 30fps)
-    max_wait_sec: 0.3                # per-tick wait to find a set
+    # sync_time_slop: 0.15              # target sync tolerance (adaptive will try 0.05s, 0.1s, 0.2s)
+    sync_time_slop: 0.25              # target sync tolerance (adaptive will try 0.05s, 0.1s, 0.2s)
+
+
+    buffer_size: 100                 # frames kept per topic (increased for 30fps)
+    max_wait_sec: 0.5                # per-tick wait to find a set
     require_all: true                # require all topics present
     adaptive_sync: true              # try tight sync first, fall back to looser
-    remove_used_frames: true         # clear old frames after capture to prevent clogging
+    # remove_used_frames: true         # clear old frames after capture to prevent clogging
+    remove_used_frames: false         # clear old frames after capture to prevent clogging
