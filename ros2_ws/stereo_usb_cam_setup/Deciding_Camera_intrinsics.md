@@ -63,32 +63,28 @@ python3 calibrate_realsense_to_right.py
 ```
 - Then evaluate the results printed out 
 
-RESULTS OF THE CALIBRATION FOR THE REALSENSE TO THE USBCAM RIGHT CAMERA:
+RESULTS OF THE BEST CALIBRATION FOR THE REALSENSE TO THE USBCAM RIGHT CAMERA that I got:
 ```
 --- RESULTS ---
-RMS Error: 16.251240759472633
-
-Left Camera Matrix (K1):
- [[342.38669154   0.         315.93207959]
- [  0.         356.2293514  210.71972505]
+Processing 64 valid pairs...
+Calibrating Right Camera alone...
+Right Camera Initial RMS: 2.567716289699856
+Right Camera Matrix Guess:
+[[412.00110291   0.         321.64105194]
+ [  0.         413.79554348 267.29828363]
  [  0.           0.           1.        ]]
+Running Stereo Calibration...
 
-Right Camera Matrix (K2):
- [[269.17348427   0.         338.58500081]
- [  0.         294.73748816 231.62601469]
- [  0.           0.           1.        ]]
-
+FINAL RMS Error: 2.176027585824659
+Translation:
+[[-0.13127811]
+ [ 0.00112071]
+ [-0.03945792]]
 Rotation (R):
- [[ 0.99680033 -0.05257543 -0.06020729]
- [ 0.04501074  0.99166142 -0.12075452]
- [ 0.06605397  0.11765817  0.9908549 ]]
+[[ 9.99736235e-01 -5.30760928e-04 -2.29603639e-02]
+ [-1.74921687e-03  9.95069315e-01 -9.91665206e-02]
+ [ 2.28997873e-02  9.91805266e-02  9.94805922e-01]]
 
-Translation (T):
- [[-0.17715181]
- [-0.006978  ]
- [ 0.037484  ]]
-
-Saved to hybrid_calibration.npz
 ```
 
 
