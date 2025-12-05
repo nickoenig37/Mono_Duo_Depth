@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from depth_estimation_net import SiameseStereoNet
 from dataset_loaders.flying_things_loader import FlyingThingsLoader
+from dataset_loaders.custom_loader import CustomLoader
 from run_model_with_depth import run_inference
 
 def create_new_version_folder(base_dir):
@@ -86,7 +87,7 @@ def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
     for batch_idx, batch in enumerate(train_loader):
         left = batch["left"].to(device)
         right = batch["right"].to(device)
-        target_disp = batch["disparity"].to(device).squeeze(1)
+        target_disp = batch["depth"].to(device).squeeze(1)
 
         # Create a valid mask to ignore invalid disparity values
         mask = (target_disp > 0) & (target_disp < 192) # 192 is standard max disparity
@@ -127,7 +128,7 @@ def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
         for batch in val_loader:
             left = batch["left"].to(device)
             right = batch["right"].to(device)
-            target_disp = batch["disparity"].to(device)
+            target_disp = batch["depth"].to(device)
             
             mask = (target_disp > 0) & (target_disp < 192)
             if mask.sum() == 0: continue
@@ -185,18 +186,31 @@ def main(n_train):
     n_val = int(n_train * train_val_split / (1 - train_val_split))
 
     # Create dataset loader for the training/validation sets, choosing the loader based on the dataset we would like to use
-    flying_things_dataset_dir = os.path.join(dataset_dir, "FlyingThings3D")
-    train_dataset = FlyingThingsLoader( # Using FlyingThings dataset, resizing images for speed/memory efficiency
-        root_dir=flying_things_dataset_dir, 
-        split='train', 
-        target_size=(480, 640),
-        max_samples=n_train
+    # flying_things_dataset_dir = os.path.join(dataset_dir, "FlyingThings3D")
+    # train_dataset = FlyingThingsLoader( # Using FlyingThings dataset, resizing images for speed/memory efficiency
+    #     root_dir=flying_things_dataset_dir, 
+    #     split='train', 
+    #     target_size=(480, 640),
+    #     max_samples=n_train
+    # )
+    # val_dataset = FlyingThingsLoader(
+    #     root_dir=flying_things_dataset_dir, 
+    #     split='val', 
+    #     target_size=(480, 640),
+    #     max_samples=n_val
+    # )
+
+    # Create custom loader for the training/validation sets
+    custom_dataset_dir = os.path.join(dataset_dir, "CustomDataset")
+    train_dataset = CustomLoader(
+        root_dir=custom_dataset_dir,
+        split='train',
+        save_transformed=False
     )
-    val_dataset = FlyingThingsLoader(
-        root_dir=flying_things_dataset_dir, 
-        split='val', 
-        target_size=(480, 640),
-        max_samples=n_val
+    val_dataset = CustomLoader(
+        root_dir=custom_dataset_dir,
+        split='val',
+        save_transformed=False
     )
 
     # Safety Check
@@ -271,12 +285,24 @@ def main(n_train):
         )
 
         # Run inference on a fixed sample from the validation set after each epoch, saving the results
+        # run_inference(
+        #     model_path=model_save_path,
+        #     dataset_dir=f"{flying_things_dataset_dir}/val",
+        #     left_path="image_clean/left/0000206.png",
+        #     right_path="image_clean/right/0000206.png",
+        #     disparity_path="disparity/left/0000206.pfm",
+        #     device=device,
+        #     open_plot=False,
+        #     save_plot=True,
+        #     save_path=os.path.join(inference_save_path, f"inference_results_epoch_{epoch+1}.png")
+        # )
+
         run_inference(
             model_path=model_save_path,
-            dataset_dir=f"{flying_things_dataset_dir}/val",
-            left_path="image_clean/left/0000206.png",
-            right_path="image_clean/right/0000206.png",
-            disparity_path="disparity/left/0000206.pfm",
+            dataset_dir=f"{custom_dataset_dir}/val",
+            left_path="depth_of_thode/000001/color.npy",
+            right_path="depth_of_thode/000001/right.npy",
+            disparity_path="depth_of_thode/000001/depth.npy",
             device=device,
             open_plot=False,
             save_plot=True,

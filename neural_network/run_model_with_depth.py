@@ -33,8 +33,29 @@ def run_inference(model_path, dataset_dir, left_path, right_path, disparity_path
         return
 
     # Preprocess the data
-    preprocessor = StereoPreprocessor(target_size=(480, 640))
-    left_tensor, right_tensor, target_disp_tensor = preprocessor.load_sample(left_path, right_path, disparity_path)
+    # preprocessor = StereoPreprocessor(target_size=(480, 640))
+    # left_tensor, right_tensor, target_disp_tensor = preprocessor.load_sample(left_path, right_path)
+
+    left_arr = np.load(left_path)
+    right_arr = np.load(right_path)
+
+    # Convert to PIL images for torchvision transforms
+    left_img = Image.fromarray(left_arr.astype(np.uint8))
+    right_img = Image.fromarray(right_arr.astype(np.uint8))
+
+    import torchvision.transforms as Transforms
+    monocular_RGB_image_transform = Transforms.Compose([
+        Transforms.Resize((480, 640)),
+        Transforms.ToTensor()
+    ])
+
+    left_tensor = monocular_RGB_image_transform(left_img)
+    right_tensor = monocular_RGB_image_transform(right_img)
+
+    # Disparity path is actually a depth map, load this
+    depth_arr = np.load(disparity_path)
+    depth_arr = depth_arr.astype(np.float32) / 65535.0  # normalize to [0,1]
+    target_disp_tensor = torch.from_numpy(depth_arr).unsqueeze(0)
     
     # Run inference on the preprocessed data using the model
     with torch.no_grad():
@@ -48,9 +69,11 @@ def run_inference(model_path, dataset_dir, left_path, right_path, disparity_path
     ground_truth_disparity_map = target_disp_tensor.squeeze().cpu().numpy()
 
     # Create the left input image tensor but without the normalization for visualization
-    left_input_image = Image.open(left_path).convert('RGB')
-    left_transformed_image = preprocessor.rgb_crop_only_transform(left_input_image)
-    left_transformed_image = left_transformed_image.permute(1, 2, 0).numpy()
+    # left_input_image = Image.open(left_path).convert('RGB')
+    # left_transformed_image = preprocessor.rgb_crop_only_transform(left_input_image)
+
+    # Use the already made tensor
+    left_transformed_image = left_tensor.permute(1, 2, 0).numpy()
     left_final_image = np.clip(left_transformed_image, 0, 1)
 
     # Plot everything on one figure with 3 subplots
