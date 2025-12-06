@@ -11,8 +11,9 @@ class SiameseStereoNet(nn.Module):
     a disparity map.
     """
 
-    def __init__(self):
+    def __init__(self, dropout_p=0.0):
         super(SiameseStereoNet, self).__init__()
+        self.dropout_p = dropout_p
 
         # Load a pre-trained ResNet-18 model, which already knows how to see edges/textures from ImageNet.
         base_model = models.resnet18(weights='DEFAULT')
@@ -35,30 +36,52 @@ class SiameseStereoNet(nn.Module):
 
         # Decoder Blocks (With Skip Connections)
         
+        # Only add dropout if dropout_p > 0
+        dropout_layers = []
+        if dropout_p > 0:
+            dropout_layers = [nn.Dropout2d(p=dropout_p)]
+        
         # Decoder 1: Input (256 + 256 from fusion) -> Output 64
-        self.decoder_layer1 = nn.Sequential(
+        decoder1_layers = [
             nn.Conv2d(256, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
+        ]
+        if dropout_p > 0:
+            decoder1_layers.append(nn.Dropout2d(p=dropout_p))
+        decoder1_layers.extend([
             nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1), # Upsample to 1/4
             nn.ReLU(inplace=True)
-        )
+        ])
+        self.decoder_layer1 = nn.Sequential(*decoder1_layers)
+        
         # Decoder 2: Input (64 from dec1 + 64 from skip layer 2) -> Output 64
-        self.decoder_layer2 = nn.Sequential(
+        decoder2_layers = [
             nn.Conv2d(128, 64, kernel_size=3, padding=1), # Compress concatenation
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
+        ]
+        if dropout_p > 0:
+            decoder2_layers.append(nn.Dropout2d(p=dropout_p))
+        decoder2_layers.extend([
             nn.ConvTranspose2d(64, 64, kernel_size=4, stride=2, padding=1), # Upsample to 1/2
             nn.ReLU(inplace=True)
-        )
+        ])
+        self.decoder_layer2 = nn.Sequential(*decoder2_layers)
+        
         # Decoder 3: Input (64 from dec2 + 64 from skip layer 1) -> Output 32
-        self.decoder_layer3 = nn.Sequential(
+        decoder3_layers = [
             nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
+        ]
+        if dropout_p > 0:
+            decoder3_layers.append(nn.Dropout2d(p=dropout_p))
+        decoder3_layers.extend([
             nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1), # Upsample to Full
             nn.ReLU(inplace=True)
-        )
+        ])
+        self.decoder_layer3 = nn.Sequential(*decoder3_layers)
 
         # Final Projection
         self.final = nn.Conv2d(32, 1, kernel_size=3, padding=1)

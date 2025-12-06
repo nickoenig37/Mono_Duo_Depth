@@ -20,11 +20,13 @@ graph TD
 ---
 
 ## 2. Calibration (The Source of Truth)
+
 Everything relies on the calibration file: [camera_scripts/manual_calibration_refined.npz](file:///home/koener/Documents/Capstone_Bot/capstone_bot/ros2_ws/src/Mono_Duo_Depth/camera_scripts/manual_calibration_refined.npz).
 This defines the physical relationship between your two cameras.
 
 **Current Values:**
 *   **Left Camera (Realsense)**: Intrinsic Matrix $K_1$, Distortion $D_1=0$.
+
 *   **Right Camera (OV2710)**: Intrinsic Matrix $K_2$, Distortion $D_2 \approx [-0.07, -0.01, ...]$.
 *   **Stereo Extrinsics**:
     *   **Rotation ($R$)**: The rotation matrix to align Right camera to Left.

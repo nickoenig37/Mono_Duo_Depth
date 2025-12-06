@@ -30,7 +30,7 @@ python3 train_fine_tune.py \
   --dataset_dir ../dataset \
   --calib_file ../camera_scripts/manual_calibration_refined.npz \
   --pretrained_model trained_25000_flyingthings_stereo_model.pth \
-  --epochs 20
+  --epochs 50
 ```
 
 - **Output**: Cleaned weights saved in `results/vX_finetune/`.
@@ -44,7 +44,7 @@ cd ~/Documents/Capstone_Bot/capstone_bot/ros2_ws/src/Mono_Duo_Depth/neural_netwo
 
 # Visualize (Replace v2_finetune with your actual latest version)
 python3 run_vis_custom.py \
-  --model_path results/v2_finetune/best_finetuned_model.pth \
+  --model_path r../esults/v2_finetune/best_finetuned_model.pth \
   --dataset_dir ../dataset/val \
   --calib_file ../camera_scripts/manual_calibration_refined.npz
 ```

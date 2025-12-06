@@ -1,0 +1,19 @@
+# Core PyTorch and Deep Learning
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Computer Vision
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Scientific Computing
+numpy>=1.24.0
+
+# Data Visualization
+matplotlib>=3.7.0
+
+# Argument Parsing (usually included with Python, but listing for completeness)
+argparse
+
+# Path handling (included with Python 3.4+, but listing for clarity)
+pathlib

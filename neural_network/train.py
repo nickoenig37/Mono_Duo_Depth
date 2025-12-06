@@ -148,19 +148,25 @@ def train_epoch(model, train_loader, val_loader, criterion, optimizer, device):
 def activate_cuda():
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
+        num_gpus = torch.cuda.device_count()
         print("CUDA is available. Using GPU for training.")
-        print(f"GPU Device       : {torch.cuda.get_device_name(0)}")
+        print(f"Number of GPUs   : {num_gpus}")
+        if num_gpus > 1:
+            print(f"🚀 Multi-GPU training enabled! Using {num_gpus} GPUs:")
+            for i in range(num_gpus):
+                print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+        else:
+            print(f"GPU Device       : {torch.cuda.get_device_name(0)}")
         print(f"CUDA Version     : {torch.version.cuda}\n")
 
-        return torch.device("cuda")
+        return torch.device("cuda"), num_gpus
     else:
         print("CUDA is not available. Using CPU for training.\n")
-
-        return torch.device("cpu")
+        return torch.device("cpu"), 0
 
 def main(n_train):
     # Activate CUDA if available
-    device = activate_cuda()
+    device, num_gpus = activate_cuda()
 
     # Define the dataset directory relative to this script
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -209,14 +215,28 @@ def main(n_train):
 
     print(f"Training Samples: {len(train_dataset)} | Validation Samples: {len(val_dataset)}") 
 
+    # Adjust batch size for multi-GPU (multiply by number of GPUs)
+    # Batch size of 8 per GPU is good, anything over causes OOMs
+    batch_size = 8 * max(1, num_gpus)
+    # Scale num_workers with number of GPUs for better data loading
+    num_workers = 4 * max(1, num_gpus)  # 4 workers per GPU
+    print(f"Batch size adjusted for {num_gpus} GPU(s): {batch_size}")
+    print(f"Num workers set to: {num_workers}")
+    
     # Create DataLoaders for training and validation sets so we can iterate through them in batches instead of all at once
-    # Batch size of 4 is too small, anything over 8 causes OOMs on 8GB GPUs
-    # 4-6 workers is good, anything under underutilizes CPU, anything over causes OOMs
-    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True, num_workers=6)
-    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=6)
+    # pin_memory=True speeds up CPU-to-GPU transfer
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True)
 
     # Initialize the Neural Network, based on a Siamese Architecture
-    model = SiameseStereoNet().to(device)
+    model = SiameseStereoNet()
+    
+    # Enable multi-GPU training if available
+    if num_gpus > 1:
+        print(f"Wrapping model with DataParallel for {num_gpus} GPUs\n")
+        model = torch.nn.DataParallel(model)
+    
+    model = model.to(device)
 
     # Define the loss function. We are using SmoothL1Loss instead of MSE as it is less sensitive to outliers (like edges)
     criterion = torch.nn.SmoothL1Loss()
@@ -255,7 +275,9 @@ def main(n_train):
         # Save the model if the validation loss has improved
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), model_save_path)
+            # Save model without DataParallel wrapper for compatibility
+            model_to_save = model.module if isinstance(model, torch.nn.DataParallel) else model
+            torch.save(model_to_save.state_dict(), model_save_path)
             print(f"Saved new best model (Val Loss: {val_loss:.4f})")
 
         print("\n" + "-" * 50 + "\n")

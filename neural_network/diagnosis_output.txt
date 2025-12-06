@@ -1,0 +1,38 @@
+
+============================================================
+COMPREHENSIVE TRAINING DIAGNOSTICS
+============================================================
+
+============================================================
+1. CALIBRATION CHECK
+============================================================
+✓ Loaded calibration from: ../camera_scripts/manual_calibration_refined.npz
+
+Available keys: ['K1', 'D1', 'K2', 'D2', 'R', 'T']
+
+Left Camera Intrinsics (K1):
+  Focal length X: 606.84 px
+  Focal length Y: 606.82 px
+  Principal point: (324.80, 242.95)
+
+Right Camera Intrinsics (K2):
+  Focal length X: 412.00 px
+  Focal length Y: 413.80 px
+  Principal point: (321.64, 267.30)
+
+⚠️  WARNING: Large focal length mismatch!
+   X difference: 32.1%
+   Y difference: 31.8%
+
+Stereo Baseline:
+  Translation: [[-0.13127811]
+ [ 0.00112071]
+ [-0.03945792]]
+Traceback (most recent call last):
+  File "/nfs/u50/koenin1/ML_PROJECT/Mono_Duo_Depth/neural_network/diagnose_training.py", line 356, in <module>
+    main()
+  File "/nfs/u50/koenin1/ML_PROJECT/Mono_Duo_Depth/neural_network/diagnose_training.py", line 314, in main
+    calib = check_calibration(calib_file)
+  File "/nfs/u50/koenin1/ML_PROJECT/Mono_Duo_Depth/neural_network/diagnose_training.py", line 69, in check_calibration
+    print(f"  Horizontal baseline: {baseline*1000:.2f} mm ({baseline:.4f} m)")
+TypeError: unsupported format string passed to numpy.ndarray.__format__
